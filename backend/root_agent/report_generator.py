@@ -33,15 +33,6 @@ def generate_report(agent_name, rds_metadata, validation_results, suggestions):
 
 # --- HTML Generation and Parsing ---
 
-def get_aws_account_id():
-    """Fetches the AWS Account ID."""
-    try:
-        client = boto3.client("sts")
-        return client.get_caller_identity()["Account"]
-    except Exception as e:
-        print(f"Error fetching AWS Account ID: {e}")
-        return "Unknown"
-
 def parse_md_report(file_path):
     """Parses a Markdown report file that may contain multiple reports, returning a list of data dictionaries."""
     if not os.path.exists(file_path):
@@ -188,12 +179,12 @@ def main():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DMS Pre-requisites and Migration Report</title>
     <style>
-        body { font-family: sans-serif; margin: 2em; background-color: #f9f9f9; }
+        body { font-family: system-ui, -apple-system, sans-serif; background-color: #e5e7eb; }
         h1, h2 { color: #333; }
-        table { border-collapse: collapse; width: 100%; margin-bottom: 2em; box-shadow: 0 2px 3px rgba(0,0,0,0.1); }
-        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 2em; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
+        th, td { padding: 12px; text-align: left; }
         th { background-color: #607D8B; color: white; }
-        tr:nth-child(even) { background-color: #f2f2f2; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
         .pass, .fail, .info { display: inline-flex; align-items: center; gap: 8px; }
         .pass { color: green; }
         .fail { color: red; }
@@ -204,7 +195,7 @@ def main():
         .status-cell .fail::before { background-color: red; }
         .status-cell .info::before { background-color: #00529B; }
         .container { max-width: 1200px; margin: auto; background: white; padding: 2em; border-radius: 8px; }
-        button { background-color: #3498db; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; }
+        button { background-color: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; }
         button:hover { background-color: #2980b9; }
         button:disabled { background-color: #cccccc; cursor: not-allowed; }
         .progress-bar-container { display: none; width: 100%; background-color: #f3f3f3; border-radius: 4px; margin-top: 10px; }
@@ -265,7 +256,7 @@ def main():
 </html>
 """
     
-    aws_account_id = get_aws_account_id()
+    aws_account_id = os.getenv("AWS_ACCOUNT_ID", "Not Provided")
     
     mysql_reports = parse_md_report("mysql_report.md")
     postgres_reports = parse_md_report("postgres_report.md")
@@ -280,9 +271,8 @@ def main():
     if postgres_reports:
         postgres_html = "<h2>PostgreSQL Instances Report</h2>" + generate_html_tables(postgres_reports, columns)
     
-    template = html_template.replace("{{AWS_ACCOUNT_ID}}", aws_account_id)
     report_container = mysql_html + postgres_html
-    template = html_template.replace("<!-- The consolidated report will be inserted here -->", report_container)
+    template = html_template.replace("{{AWS_ACCOUNT_ID}}", aws_account_id).replace("<!-- The consolidated report will be inserted here -->", report_container)
     
     os.makedirs("artifacts", exist_ok=True)
     with open("artifacts/final_report.html", "w") as f:

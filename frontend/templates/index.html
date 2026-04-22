@@ -1,193 +1,343 @@
 <!doctype html>
 <html lang="en">
-  <head>
+<head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>AWS Configuration</title>
+    <title>Discovery Hub & DMS Configuration</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <style>
-      .spinner {
-        display: none;
-        border: 4px solid rgba(0, 0, 0, 0.1);
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        border-left-color: #09f;
-        animation: spin 1s ease infinite;
-        vertical-align: middle;
-        margin-right: 8px;
-      }
-      @keyframes spin {
-        0% {
-          transform: rotate(0deg);
+        :root {
+            --primary-color: #4f46e5;
+            --secondary-color: #6b7280;
+            --success-color: #10b981;
+            --danger-color: #ef4444;
+            --light-gray: #f9fafb;
+            --medium-gray: #e5e7eb;
+            --dark-gray: #374151;
         }
-        100% {
-          transform: rotate(360deg);
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: #f3f4f6; /* Softer, slightly darker gray */
+            color: var(--dark-gray);
         }
-      }
-      #configure-result, #discover-result {
-        margin-left: 15px;
-        font-weight: bold;
-      }
-      .text-success {
-        color: #28a745;
-      }
-      .text-danger {
-        color: #dc3545;
-      }
+
+        .header {
+            background: linear-gradient(to right, #e0e7ff, #c7d2fe); /* Soft blue gradient */
+            padding: 1rem 0;
+            border: 2px solid #374151; /* Dark border */
+            margin-bottom: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        .header h1 {
+            font-weight: 700;
+            color: #373f51; /* Darker text for contrast */
+        }
+
+        .card {
+            border: 2px solid #374151; /* Dark border */
+            border-radius: 12px;
+            /* Enhanced shadow for a stronger 3D effect */
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1), 0 6px 6px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+            overflow: hidden;
+            background-color: white;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 25px rgba(0,0,0,0.15), 0 8px 10px rgba(0,0,0,0.1);
+        }
+
+        .card-header {
+            background-color: #f9fafb;
+            border-bottom: 1px solid var(--medium-gray);
+            padding: 1.5rem;
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        .form-control {
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 10px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .form-control:focus {
+            border-color: var(--primary-color);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
+        }
+
+        .btn {
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #4338ca;
+        }
+
+        .btn:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        .spinner {
+            display: none;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border-left-color: #fff;
+            animation: spin 1s ease infinite;
+            vertical-align: middle;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #report-container {
+            min-height: 500px;
+            background-color: var(--light-gray);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        
+        .alert {
+            margin-top: 1rem;
+        }
+        .clock-spinner {
+            display: inline-block;
+            animation: spin 1.5s linear infinite;
+            font-size: 1.2rem;
+            margin-right: 8px;
+        }
+        .card-body-compact {
+            padding-top: 0.75rem;
+            padding-bottom: 0.75rem;
+        }
+    .card-header-sm {
+            padding: 0.75rem 1.25rem;
+            font-size: 1rem;
+        }
+
+        .card-body-sm {
+            padding: 0.75rem;
+        }
+
+        .form-group-sm {
+            margin-bottom: 0.5rem;
+        }
+
+        .form-control-sm-custom {
+            height: calc(1.5em + .5rem + 2px);
+            padding: .25rem .5rem;
+            font-size: .875rem;
+        }
+
+        .btn-sm-custom {
+            padding: .25rem .5rem;
+            font-size: .875rem;
+            border-radius: .2rem;
+        }
     </style>
-  </head>
-  <body>
-    <div class="container mt-5">
-      <h2>Configure AWS Credentials</h2>
-      <form id="configure-form">
-        <div class="form-group">
-          <label for="aws_access_key_id">AWS Access Key ID</label>
-          <input type="text" class="form-control" id="aws_access_key_id" name="aws_access_key_id" required>
+</head>
+<body>
+
+    <header class="header">
+        <div class="container text-center">
+            <h4>Discovery Hub & DMS Configuration</h4>
         </div>
-        <div class="form-group">
-          <label for="aws_secret_access_key">AWS Secret Access Key</label>
-          <input type="password" class="form-control" id="aws_secret_access_key" name="aws_secret_access_key" required>
+    </header>
+
+    <main>
+        <div class="container">
+            <div class="row">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header card-header-sm">Configure AWS Credentials</div>
+                        <div class="card-body card-body-sm">
+                            <form id="configure-form">
+                                <div class="form-group form-group-sm">
+                                    <label for="aws_account_id" style="font-size: 0.9rem;">AWS Account ID</label>
+                                    <input type="text" class="form-control form-control-sm-custom" id="aws_account_id" name="aws_account_id" required>
+                                </div>
+                                <div class="form-group form-group-sm">
+                                    <label for="aws_access_key_id" style="font-size: 0.9rem;">AWS Access Key ID</label>
+                                    <input type="text" class="form-control form-control-sm-custom" id="aws_access_key_id" name="aws_access_key_id" required>
+                                </div>
+                                <div class="form-group form-group-sm">
+                                    <label for="aws_secret_access_key" style="font-size: 0.9rem;">AWS Secret Access Key</label>
+                                    <input type="password" class="form-control form-control-sm-custom" id="aws_secret_access_key" name="aws_secret_access_key" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-sm-custom" id="configure-btn">
+                                    <span class="spinner" id="configure-spinner"></span>
+                                    <span id="configure-button-text">Configure AWS</span>
+                                </button>
+                                <div id="configure-result" class="mt-2"></div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header card-header-sm">Discover Databases</div>
+                        <div class="card-body card-body-sm">
+                            <div class="form-group form-group-sm">
+                                <label for="discover-prompt" style="font-size: 0.9rem;">Discovery Query</label>
+                                <textarea class="form-control form-control-sm-custom" id="discover-prompt" rows="1" disabled>Discover all mysql and postgres databases from aws cloud</textarea>
+                            </div>
+                            <button id="discover-btn" class="btn btn-success btn-sm-custom" disabled>
+                                <span class="spinner" id="discover-spinner"></span>
+                                <span id="discover-button-text">Discover Databases</span>
+                            </button>
+                            <div id="discover-result" class="mt-2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-        <button type="submit" class="btn btn-primary" id="configure-btn">
-          <span class="spinner" id="configure-spinner"></span>
-          <span id="configure-button-text">Configure AWS</span>
-        </button>
-        <span id="configure-result"></span>
-      </form>
-      <hr>
-      <div class="form-group">
-        <label for="discover-prompt">Add Database Discovery Query in below text box and click on Discover Databases button</label>
-        <textarea class="form-control" id="discover-prompt" rows="3" disabled>Discover all mysql and postgres databases from aws cloud</textarea>
-      </div>
-      <button id="discover-btn" class="btn btn-success" disabled>
-        <span class="spinner" id="discover-spinner"></span>
-        <span id="discover-button-text">Discover Databases</span>
-      </button>
-      <span id="discover-result"></span>
-      <hr>
-      <div id="output"></div>
-    </div>
+        <div class="container-fluid" style="max-width: 1600px;">
+            <div class="row">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header card-header-sm">View Report</div>
+                        <div class="card-body card-body-sm">
+                            <div id="output">
+                                <p class="text-muted">The generated DMS report will be displayed here.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
 
     <script>
-      document.getElementById('configure-form').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const accessKeyId = document.getElementById('aws_access_key_id').value;
-        const secretAccessKey = document.getElementById('aws_secret_access_key').value;
-        const configureResult = document.getElementById('configure-result');
+        const configureForm = document.getElementById('configure-form');
         const discoverBtn = document.getElementById('discover-btn');
-        const discoverPrompt = document.getElementById('discover-prompt');
-        const configureBtn = document.getElementById('configure-btn');
-        const spinner = document.getElementById('configure-spinner');
-        const buttonText = document.getElementById('configure-button-text');
 
-        configureResult.textContent = '';
-        configureResult.className = '';
-        discoverBtn.disabled = true;
-        discoverPrompt.disabled = true;
-        configureBtn.disabled = true;
-        spinner.style.display = 'inline-block';
-        buttonText.textContent = 'Configuring...';
+        configureForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const accountId = document.getElementById('aws_account_id').value;
+            const accessKeyId = document.getElementById('aws_access_key_id').value;
+            const secretAccessKey = document.getElementById('aws_secret_access_key').value;
+            const configureResult = document.getElementById('configure-result');
+            const discoverBtn = document.getElementById('discover-btn');
+            const discoverPrompt = document.getElementById('discover-prompt');
+            const configureBtn = document.getElementById('configure-btn');
+            const spinner = document.getElementById('configure-spinner');
+            const buttonText = document.getElementById('configure-button-text');
 
-        try {
-          const response = await fetch('/configure', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              aws_access_key_id: accessKeyId,
-              aws_secret_access_key: secretAccessKey,
-            }),
-          });
+            configureResult.innerHTML = '';
+            discoverBtn.disabled = true;
+            discoverPrompt.disabled = true;
+            configureBtn.disabled = true;
+            spinner.style.display = 'inline-block';
+            buttonText.textContent = 'Configuring...';
 
-          const data = await response.json();
-
-          if (response.ok) {
-            configureResult.textContent = data.message;
-            configureResult.classList.add('text-success');
-            discoverBtn.disabled = false;
-            discoverPrompt.disabled = false;
-          } else {
-            configureResult.textContent = `Error: ${data.detail}`;
-            configureResult.classList.add('text-danger');
-          }
-        } catch (error) {
-          configureResult.textContent = `An unexpected error occurred: ${error}`;
-          configureResult.classList.add('text-danger');
-        } finally {
-          configureBtn.disabled = false;
-          spinner.style.display = 'none';
-          buttonText.textContent = 'Configure AWS';
-        }
-      });
-
-      document.getElementById('discover-btn').addEventListener('click', async () => {
-        const outputDiv = document.getElementById('output');
-        const prompt = document.getElementById('discover-prompt').value;
-        const discoverBtn = document.getElementById('discover-btn');
-        const spinner = document.getElementById('discover-spinner');
-        const buttonText = document.getElementById('discover-button-text');
-        const discoverResult = document.getElementById('discover-result');
-
-        outputDiv.innerHTML = '';
-        discoverResult.textContent = '';
-        discoverResult.className = '';
-        discoverBtn.disabled = true;
-        spinner.style.display = 'inline-block';
-        buttonText.textContent = 'Discovering...';
-
-        try {
-          const response = await fetch('/discover', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ prompt: prompt }),
-          });
-
-          const data = await response.json();
-
-          if (response.ok && data.report_url) {
             try {
-              const reportResponse = await fetch(data.report_url);
-              if (reportResponse.ok) {
-                const reportHtml = await reportResponse.text();
-                const heading = document.createElement('h3');
-                heading.textContent = 'DMS Report';
-                outputDiv.appendChild(heading);
-                
-                const iframe = document.createElement('iframe');
-                iframe.style.width = '100%';
-                iframe.style.height = '800px';
-                iframe.style.border = 'none';
-                iframe.srcdoc = reportHtml;
-                outputDiv.appendChild(iframe);
-              } else {
-                discoverResult.textContent = `Error fetching report: ${reportResponse.status} ${reportResponse.statusText}`;
-                discoverResult.classList.add('text-danger');
-              }
-            } catch (fetchError) {
-              discoverResult.textContent = `An error occurred while fetching the report: ${fetchError}. This is likely a CORS issue.`;
-              discoverResult.classList.add('text-danger');
+                const response = await fetch('/configure', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        aws_account_id: accountId,
+                        aws_access_key_id: accessKeyId,
+                        aws_secret_access_key: secretAccessKey,
+                    }),
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    configureResult.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                    discoverBtn.disabled = false;
+                    discoverPrompt.disabled = false;
+                } else {
+                    configureResult.innerHTML = `<div class="alert alert-danger">Error: ${data.detail}</div>`;
+                }
+            } catch (error) {
+                configureResult.innerHTML = `<div class="alert alert-danger">An unexpected error occurred: ${error}</div>`;
+            } finally {
+                configureBtn.disabled = false;
+                spinner.style.display = 'none';
+                buttonText.textContent = 'Configure AWS';
             }
-          } else {
-            let errorMsg = `Error: ${data.detail || 'Unknown error'}`;
-            if (data.text) {
-              errorMsg += `\nBackend Response:\n${data.text}`;
+        });
+
+        discoverBtn.addEventListener('click', async () => {
+            const startTime = new Date();
+            const outputDiv = document.getElementById('output');
+            const prompt = document.getElementById('discover-prompt').value;
+            const spinner = document.getElementById('discover-spinner');
+            const buttonText = document.getElementById('discover-button-text');
+            const discoverResult = document.getElementById('discover-result');
+
+            outputDiv.innerHTML = '<p class="text-muted"><span class="clock-spinner">🕰️</span>Generating report, please wait...</p>';
+            discoverResult.innerHTML = '';
+            discoverBtn.disabled = true;
+            spinner.style.display = 'inline-block';
+            buttonText.textContent = 'Discovering...';
+
+            try {
+                const response = await fetch('/discover', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt }),
+                });
+                const data = await response.json();
+
+                if (response.ok && data.report_url) {
+                    const reportResponse = await fetch(data.report_url);
+                    if (reportResponse.ok) {
+                        const reportHtml = await reportResponse.text();
+                        outputDiv.innerHTML = `<iframe srcdoc="${reportHtml.replace(/"/g, '&quot;')}" style="width: 100%; height: 400px; border: none; border-radius: 8px;"></iframe>`;
+                        const endTime = new Date();
+                        const timeDiff = (endTime - startTime) / 1000; // time difference in seconds
+                        const minutes = Math.floor(timeDiff / 60);
+                        const seconds = Math.floor(timeDiff % 60);
+                        discoverResult.innerHTML = `<div class="alert alert-success">Report generated successfully in ${minutes} minutes and ${seconds} seconds.</div>`;
+                    } else {
+                        discoverResult.innerHTML = `<div class="alert alert-danger">Error fetching report: ${reportResponse.status} ${reportResponse.statusText}</div>`;
+                    }
+                } else {
+                    let errorMsg = `Error: ${data.detail || 'Unknown error'}`;
+                    if (data.text) {
+                        errorMsg += `<br><pre>${data.text}</pre>`;
+                    }
+                    discoverResult.innerHTML = `<div class="alert alert-danger">${errorMsg}</div>`;
+                }
+            } catch (error) {
+                discoverResult.innerHTML = `<div class="alert alert-danger">An unexpected error occurred: ${error}</div>`;
+            } finally {
+                discoverBtn.disabled = false;
+                spinner.style.display = 'none';
+                buttonText.textContent = 'Discover Databases';
             }
-            discoverResult.textContent = errorMsg;
-            discoverResult.classList.add('text-danger');
-          }
-        } catch (error) {
-          discoverResult.textContent = `An unexpected error occurred: ${error}`;
-          discoverResult.classList.add('text-danger');
-        } finally {
-          discoverBtn.disabled = false;
-          spinner.style.display = 'none';
-          buttonText.textContent = 'Discover Databases';
-        }
-      });
+        });
     </script>
-  </body>
+</body>
 </html>

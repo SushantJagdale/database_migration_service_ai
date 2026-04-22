@@ -58,22 +58,24 @@ app.mount("/artifacts", StaticFiles(directory=artifacts_dir), name="artifacts")
 @app.post('/configure')
 async def configure_aws(request: Request):
     """
-    This endpoint receives AWS credentials and sets them as environment variables.
+    This endpoint receives AWS credentials and account ID, and sets them as environment variables.
     """
     try:
         body = await request.json()
+        aws_account_id = body.get("aws_account_id")
         aws_access_key_id = body.get("aws_access_key_id")
         aws_secret_access_key = body.get("aws_secret_access_key")
 
-        if not aws_access_key_id or not aws_secret_access_key:
-            logging.error("Missing AWS credentials in request body.")
-            raise HTTPException(status_code=400, detail="Missing AWS credentials.")
+        if not all([aws_account_id, aws_access_key_id, aws_secret_access_key]):
+            logging.error("Missing AWS credentials or Account ID in request body.")
+            raise HTTPException(status_code=400, detail="Missing AWS credentials or Account ID.")
 
+        os.environ['AWS_ACCOUNT_ID'] = aws_account_id
         os.environ['AWS_ACCESS_KEY_ID'] = aws_access_key_id
         os.environ['AWS_SECRET_ACCESS_KEY'] = aws_secret_access_key
         
-        logging.info("AWS credentials configured successfully.")
-        return {"message": "AWS credentials configured successfully."}
+        logging.info("AWS credentials and Account ID configured successfully.")
+        return {"message": "AWS credentials and Account ID configured successfully."}
     except Exception as e:
         logging.exception("An error occurred during AWS configuration.")
         raise HTTPException(status_code=500, detail=str(e))
