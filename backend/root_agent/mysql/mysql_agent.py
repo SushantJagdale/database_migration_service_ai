@@ -1,6 +1,6 @@
 from ..aws_utils import get_rds_metadata, get_parameter_group_settings, list_all_rds_dbs, get_specific_db_parameter
 from google.adk.agents import Agent, LlmAgent
-from ..html_report_generator import generate_report
+from ..report_generator import generate_report
 import os
 import subprocess
 #from dotenv import load_dotenv
