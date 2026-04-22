@@ -5,6 +5,37 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>AWS Configuration</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+      .spinner {
+        display: none;
+        border: 4px solid rgba(0, 0, 0, 0.1);
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        border-left-color: #09f;
+        animation: spin 1s ease infinite;
+        vertical-align: middle;
+        margin-right: 8px;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      #configure-result, #discover-result {
+        margin-left: 15px;
+        font-weight: bold;
+      }
+      .text-success {
+        color: #28a745;
+      }
+      .text-danger {
+        color: #dc3545;
+      }
+    </style>
   </head>
   <body>
     <div class="container mt-5">
@@ -18,16 +49,23 @@
           <label for="aws_secret_access_key">AWS Secret Access Key</label>
           <input type="password" class="form-control" id="aws_secret_access_key" name="aws_secret_access_key" required>
         </div>
-        <button type="submit" class="btn btn-primary">Configure AWS</button>
+        <button type="submit" class="btn btn-primary" id="configure-btn">
+          <span class="spinner" id="configure-spinner"></span>
+          <span id="configure-button-text">Configure AWS</span>
+        </button>
+        <span id="configure-result"></span>
       </form>
       <hr>
       <div class="form-group">
-        <label for="discover-prompt">Discover Databases Prompt</label>
-        <textarea class="form-control" id="discover-prompt" rows="3">Discover all mysql and postgres databases from aws cloud</textarea>
+        <label for="discover-prompt">Add Database Discovery Query in below text box and click on Discover Databases button</label>
+        <textarea class="form-control" id="discover-prompt" rows="3" disabled>Discover all mysql and postgres databases from aws cloud</textarea>
       </div>
-      <button id="discover-btn" class="btn btn-success" style="display: none;">Discover Databases</button>
+      <button id="discover-btn" class="btn btn-success" disabled>
+        <span class="spinner" id="discover-spinner"></span>
+        <span id="discover-button-text">Discover Databases</span>
+      </button>
+      <span id="discover-result"></span>
       <hr>
-      <h3>Output</h3>
       <div id="output"></div>
     </div>
 
@@ -36,9 +74,20 @@
         event.preventDefault();
         const accessKeyId = document.getElementById('aws_access_key_id').value;
         const secretAccessKey = document.getElementById('aws_secret_access_key').value;
-        const outputDiv = document.getElementById('output');
+        const configureResult = document.getElementById('configure-result');
+        const discoverBtn = document.getElementById('discover-btn');
+        const discoverPrompt = document.getElementById('discover-prompt');
+        const configureBtn = document.getElementById('configure-btn');
+        const spinner = document.getElementById('configure-spinner');
+        const buttonText = document.getElementById('configure-button-text');
 
-        outputDiv.textContent = 'Configuring AWS credentials...';
+        configureResult.textContent = '';
+        configureResult.className = '';
+        discoverBtn.disabled = true;
+        discoverPrompt.disabled = true;
+        configureBtn.disabled = true;
+        spinner.style.display = 'inline-block';
+        buttonText.textContent = 'Configuring...';
 
         try {
           const response = await fetch('/configure', {
@@ -55,20 +104,38 @@
           const data = await response.json();
 
           if (response.ok) {
-            outputDiv.textContent = data.message;
-            document.getElementById('discover-btn').style.display = 'block';
+            configureResult.textContent = data.message;
+            configureResult.classList.add('text-success');
+            discoverBtn.disabled = false;
+            discoverPrompt.disabled = false;
           } else {
-            outputDiv.textContent = `Error: ${data.detail}`;
+            configureResult.textContent = `Error: ${data.detail}`;
+            configureResult.classList.add('text-danger');
           }
         } catch (error) {
-          outputDiv.textContent = `An unexpected error occurred: ${error}`;
+          configureResult.textContent = `An unexpected error occurred: ${error}`;
+          configureResult.classList.add('text-danger');
+        } finally {
+          configureBtn.disabled = false;
+          spinner.style.display = 'none';
+          buttonText.textContent = 'Configure AWS';
         }
       });
 
       document.getElementById('discover-btn').addEventListener('click', async () => {
         const outputDiv = document.getElementById('output');
         const prompt = document.getElementById('discover-prompt').value;
-        outputDiv.innerHTML = 'Discovering databases...';
+        const discoverBtn = document.getElementById('discover-btn');
+        const spinner = document.getElementById('discover-spinner');
+        const buttonText = document.getElementById('discover-button-text');
+        const discoverResult = document.getElementById('discover-result');
+
+        outputDiv.innerHTML = '';
+        discoverResult.textContent = '';
+        discoverResult.className = '';
+        discoverBtn.disabled = true;
+        spinner.style.display = 'inline-block';
+        buttonText.textContent = 'Discovering...';
 
         try {
           const response = await fetch('/discover', {
@@ -86,28 +153,39 @@
               const reportResponse = await fetch(data.report_url);
               if (reportResponse.ok) {
                 const reportHtml = await reportResponse.text();
-                outputDiv.innerHTML = ''; // Clear the output div
+                const heading = document.createElement('h3');
+                heading.textContent = 'DMS Report';
+                outputDiv.appendChild(heading);
+                
                 const iframe = document.createElement('iframe');
                 iframe.style.width = '100%';
-                iframe.style.height = '800px'; // Adjust height as needed
+                iframe.style.height = '800px';
                 iframe.style.border = 'none';
                 iframe.srcdoc = reportHtml;
                 outputDiv.appendChild(iframe);
               } else {
-                outputDiv.textContent = `Error fetching report: ${reportResponse.status} ${reportResponse.statusText}`;
+                discoverResult.textContent = `Error fetching report: ${reportResponse.status} ${reportResponse.statusText}`;
+                discoverResult.classList.add('text-danger');
               }
             } catch (fetchError) {
-              outputDiv.textContent = `An error occurred while fetching the report: ${fetchError}. This is likely a CORS issue. Please check the browser's developer console for more details.`;
+              discoverResult.textContent = `An error occurred while fetching the report: ${fetchError}. This is likely a CORS issue.`;
+              discoverResult.classList.add('text-danger');
             }
           } else {
             let errorMsg = `Error: ${data.detail || 'Unknown error'}`;
             if (data.text) {
               errorMsg += `\nBackend Response:\n${data.text}`;
             }
-            outputDiv.textContent = errorMsg;
+            discoverResult.textContent = errorMsg;
+            discoverResult.classList.add('text-danger');
           }
         } catch (error) {
-          outputDiv.textContent = `An unexpected error occurred: ${error}`;
+          discoverResult.textContent = `An unexpected error occurred: ${error}`;
+          discoverResult.classList.add('text-danger');
+        } finally {
+          discoverBtn.disabled = false;
+          spinner.style.display = 'none';
+          buttonText.textContent = 'Discover Databases';
         }
       });
     </script>
