@@ -1,0 +1,9 @@
+fastapi
+pydantic
+uvicorn
+requests
+python-multipart
+jinja2
+google-cloud-run
+google-api-python-client
+google-auth

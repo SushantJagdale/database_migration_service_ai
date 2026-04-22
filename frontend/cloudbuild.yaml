@@ -1,0 +1,13 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args:
+  - 'build'
+  - '--tag'
+  - 'gcr.io/migration-demo-429608/dms-frontend:latest'
+  - '--build-arg'
+  - 'PROJECT_ID=migration-demo-429608'
+  - '--build-arg'
+  - 'REGION=us-central1'
+  - '.'
+images:
+- 'gcr.io/migration-demo-429608/dms-frontend:latest'

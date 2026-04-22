@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>AWS Configuration</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  </head>
+  <body>
+    <div class="container mt-5">
+      <h2>Configure AWS Credentials</h2>
+      <form id="configure-form">
+        <div class="form-group">
+          <label for="aws_access_key_id">AWS Access Key ID</label>
+          <input type="text" class="form-control" id="aws_access_key_id" name="aws_access_key_id" required>
+        </div>
+        <div class="form-group">
+          <label for="aws_secret_access_key">AWS Secret Access Key</label>
+          <input type="password" class="form-control" id="aws_secret_access_key" name="aws_secret_access_key" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Configure AWS</button>
+      </form>
+      <hr>
+      <div class="form-group">
+        <label for="discover-prompt">Discover Databases Prompt</label>
+        <textarea class="form-control" id="discover-prompt" rows="3">Discover all mysql and postgres databases from aws cloud</textarea>
+      </div>
+      <button id="discover-btn" class="btn btn-success" style="display: none;">Discover Databases</button>
+      <hr>
+      <h3>Output</h3>
+      <div id="output"></div>
+    </div>
+
+    <script>
+      document.getElementById('configure-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const accessKeyId = document.getElementById('aws_access_key_id').value;
+        const secretAccessKey = document.getElementById('aws_secret_access_key').value;
+        const outputDiv = document.getElementById('output');
+
+        outputDiv.textContent = 'Configuring AWS credentials...';
+
+        try {
+          const response = await fetch('/configure', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              aws_access_key_id: accessKeyId,
+              aws_secret_access_key: secretAccessKey,
+            }),
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            outputDiv.textContent = data.message;
+            document.getElementById('discover-btn').style.display = 'block';
+          } else {
+            outputDiv.textContent = `Error: ${data.detail}`;
+          }
+        } catch (error) {
+          outputDiv.textContent = `An unexpected error occurred: ${error}`;
+        }
+      });
+
+      document.getElementById('discover-btn').addEventListener('click', async () => {
+        const outputDiv = document.getElementById('output');
+        const prompt = document.getElementById('discover-prompt').value;
+        outputDiv.innerHTML = 'Discovering databases...';
+
+        try {
+          const response = await fetch('/discover', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ prompt: prompt }),
+          });
+
+          const data = await response.json();
+
+          if (response.ok && data.report_url) {
+            try {
+              const reportResponse = await fetch(data.report_url);
+              if (reportResponse.ok) {
+                const reportHtml = await reportResponse.text();
+                outputDiv.innerHTML = ''; // Clear the output div
+                const iframe = document.createElement('iframe');
+                iframe.style.width = '100%';
+                iframe.style.height = '800px'; // Adjust height as needed
+                iframe.style.border = 'none';
+                iframe.srcdoc = reportHtml;
+                outputDiv.appendChild(iframe);
+              } else {
+                outputDiv.textContent = `Error fetching report: ${reportResponse.status} ${reportResponse.statusText}`;
+              }
+            } catch (fetchError) {
+              outputDiv.textContent = `An error occurred while fetching the report: ${fetchError}. This is likely a CORS issue. Please check the browser's developer console for more details.`;
+            }
+          } else {
+            let errorMsg = `Error: ${data.detail || 'Unknown error'}`;
+            if (data.text) {
+              errorMsg += `\nBackend Response:\n${data.text}`;
+            }
+            outputDiv.textContent = errorMsg;
+          }
+        } catch (error) {
+          outputDiv.textContent = `An unexpected error occurred: ${error}`;
+        }
+      });
+    </script>
+  </body>
+</html>
