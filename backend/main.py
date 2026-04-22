@@ -13,11 +13,8 @@ import uvicorn
 from dotenv import load_dotenv
 import google.generativeai as genai
 
-
-
 # Load environment variables from a .env file
 load_dotenv()
-
 
 # --- Add this block to enable debug logging ---
 logging.basicConfig(
@@ -57,6 +54,29 @@ os.makedirs(artifacts_dir, exist_ok=True)
 
 # Mount the artifacts directory to serve static files
 app.mount("/artifacts", StaticFiles(directory=artifacts_dir), name="artifacts")
+
+@app.post('/configure')
+async def configure_aws(request: Request):
+    """
+    This endpoint receives AWS credentials and sets them as environment variables.
+    """
+    try:
+        body = await request.json()
+        aws_access_key_id = body.get("aws_access_key_id")
+        aws_secret_access_key = body.get("aws_secret_access_key")
+
+        if not aws_access_key_id or not aws_secret_access_key:
+            logging.error("Missing AWS credentials in request body.")
+            raise HTTPException(status_code=400, detail="Missing AWS credentials.")
+
+        os.environ['AWS_ACCESS_KEY_ID'] = aws_access_key_id
+        os.environ['AWS_SECRET_ACCESS_KEY'] = aws_secret_access_key
+        
+        logging.info("AWS credentials configured successfully.")
+        return {"message": "AWS credentials configured successfully."}
+    except Exception as e:
+        logging.exception("An error occurred during AWS configuration.")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post('/discover')
 async def discover_databases(request: Request):
@@ -135,5 +155,4 @@ async def run_agent(prompt: str):
     return {"report_path": final_response, "logs": logs}
 
 if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host='0.0.0.0', port=8090)
