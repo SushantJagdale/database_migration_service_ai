@@ -1,10 +1,9 @@
 from google.adk.agents import LlmAgent
 import os
 import subprocess
-#from dotenv import load_dotenv
-#from ..config import llm
+from dotenv import load_dotenv
 
-#load_dotenv()
+load_dotenv()
 
 def generate_final_report(user_prompt: str) -> str:
     """

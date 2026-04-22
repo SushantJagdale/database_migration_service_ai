@@ -3,10 +3,10 @@ from google.adk.agents import LlmAgent
 from ..report_generator import generate_report
 import os
 import subprocess
-#from dotenv import load_dotenv
+from dotenv import load_dotenv
 #from ..config import llm
 
-#load_dotenv()
+load_dotenv()
 
 # --- Tool Functions for a SINGLE PostgreSQL Instance ---
 def check_postgres_version(instance_id: str, region: str) -> str:

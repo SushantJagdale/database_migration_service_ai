@@ -1,6 +1,7 @@
 import os
 import subprocess
 import json
+import logging
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -16,6 +17,7 @@ PROJECT_ID = os.environ.get("PROJECT_ID", "migration-demo-429608")
 REGION = os.environ.get("REGION", "us-central1")
 
 class ConfigureRequest(BaseModel):
+    aws_account_id: str
     aws_access_key_id: str
     aws_secret_access_key: str
 
@@ -28,11 +30,12 @@ async def read_root(request: Request):
 
 @app.post("/configure")
 async def configure(payload: ConfigureRequest):
+    aws_account_id = payload.aws_account_id
     aws_access_key_id = payload.aws_access_key_id
     aws_secret_access_key = payload.aws_secret_access_key
 
-    if not aws_access_key_id or not aws_secret_access_key:
-        raise HTTPException(status_code=400, detail="Missing AWS credentials")
+    if not aws_account_id or not aws_access_key_id or not aws_secret_access_key:
+        raise HTTPException(status_code=400, detail="Missing AWS credentials or Account ID.")
 
     # try:
     #     # Format the environment variables for the update command
@@ -56,7 +59,9 @@ async def configure(payload: ConfigureRequest):
         raise HTTPException(status_code=500, detail="BACKEND_URL is not configured")
 
     try:
-        response = requests.post(f"{BACKEND_URL}/configure", json=payload.model_dump())
+        payload_dict = payload.model_dump()
+        logging.info(f"Forwarding to backend: {payload_dict}")
+        response = requests.post(f"{BACKEND_URL}/configure", json=payload_dict)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:

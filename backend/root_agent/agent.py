@@ -1,5 +1,3 @@
-# from dotenv import load_dotenv
-# load_dotenv()
 
 from google.adk.agents import ParallelAgent, SequentialAgent
 from .mysql.mysql_agent import mysql_dms_agent

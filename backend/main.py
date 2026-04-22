@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from root_agent.agent import root_agent
@@ -55,24 +56,25 @@ os.makedirs(artifacts_dir, exist_ok=True)
 # Mount the artifacts directory to serve static files
 app.mount("/artifacts", StaticFiles(directory=artifacts_dir), name="artifacts")
 
+
+class ConfigureRequest(BaseModel):
+    aws_account_id: str
+    aws_access_key_id: str
+    aws_secret_access_key: str
+
 @app.post('/configure')
-async def configure_aws(request: Request):
+async def configure_aws(payload: ConfigureRequest):
     """
     This endpoint receives AWS credentials and account ID, and sets them as environment variables.
     """
     try:
-        body = await request.json()
-        aws_account_id = body.get("aws_account_id")
-        aws_access_key_id = body.get("aws_access_key_id")
-        aws_secret_access_key = body.get("aws_secret_access_key")
-
-        if not all([aws_account_id, aws_access_key_id, aws_secret_access_key]):
+        if not all([payload.aws_account_id, payload.aws_access_key_id, payload.aws_secret_access_key]):
             logging.error("Missing AWS credentials or Account ID in request body.")
             raise HTTPException(status_code=400, detail="Missing AWS credentials or Account ID.")
 
-        os.environ['AWS_ACCOUNT_ID'] = aws_account_id
-        os.environ['AWS_ACCESS_KEY_ID'] = aws_access_key_id
-        os.environ['AWS_SECRET_ACCESS_KEY'] = aws_secret_access_key
+        os.environ['AWS_ACCOUNT_ID'] = payload.aws_account_id
+        os.environ['AWS_ACCESS_KEY_ID'] = payload.aws_access_key_id
+        os.environ['AWS_SECRET_ACCESS_KEY'] = payload.aws_secret_access_key
         
         logging.info("AWS credentials and Account ID configured successfully.")
         return {"message": "AWS credentials and Account ID configured successfully."}
