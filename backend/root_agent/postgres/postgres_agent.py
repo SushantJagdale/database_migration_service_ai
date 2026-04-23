@@ -4,7 +4,6 @@ from ..report_generator import generate_report
 import os
 import subprocess
 from dotenv import load_dotenv
-#from ..config import llm
 
 load_dotenv()
 
