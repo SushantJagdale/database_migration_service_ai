@@ -11,7 +11,7 @@ graph TB
         style Backend_Service fill:#E1D5E7,stroke:#9673A6,stroke-width:2px,color:#333
         BE_Server["FastAPI Server"]
         RootAgent["RootAgent"]
-        subgraph "Task Agents"
+        subgraph "Sub Agents"
             MysqlAgent["MySQL Agent"]
             PostgresAgent["PostgreSQL Agent"]
             ReportAgent["Reporting Agent"]
