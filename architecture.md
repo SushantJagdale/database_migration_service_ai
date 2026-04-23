@@ -9,7 +9,7 @@ graph TB
 
     subgraph "Backend Service"
         style Backend_Service fill:#E1D5E7,stroke:#9673A6,stroke-width:2px,color:#333
-        BE_Server["FastAPI Server"]
+        BE_Server["FastAPI Server - /configure, /discover"]
         RootAgent["RootAgent"]
         subgraph "Sub Agents"
             MysqlAgent["MySQL Agent"]
