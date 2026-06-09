@@ -1,18 +1,3 @@
-**/__pycache__/
-*.py[cod]
-*$py.class
-*.venv/**
-.env
-.vscode/
-*.swp
-*__pycache__*
-*/venv/
-pycache/
-*.pyc
-*.log
-/dist/
-/build/
-
 # Local .terraform directory containing downloaded providers
 .terraform/
 

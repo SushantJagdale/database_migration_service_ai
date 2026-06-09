@@ -45,22 +45,26 @@ def load_aws_credentials():
         print(f"Error loading AWS credentials: {e}")
         return None
 
-def list_all_rds_dbs():
-    """Lists all RDS databases in the account across all regions and saves them to a file."""
-    ec2_client = get_aws_client('ec2', region_name='us-east-1')
-    if not ec2_client:
-        return []
+def list_all_rds_dbs(region_name=None):
+    """Lists all RDS databases in the account across regions (or a specific region if provided) and saves them to a file."""
     try:
-        all_regions = [region['RegionName'] for region in ec2_client.describe_regions()['Regions']]
-        print(f"Scanning for RDS instances across all available AWS regions...")
+        if region_name:
+            all_regions = [region_name]
+            print(f"Scanning for RDS instances in specific region: {region_name}...")
+        else:
+            ec2_client = get_aws_client('ec2', region_name='us-east-1')
+            if not ec2_client:
+                return []
+            all_regions = [region['RegionName'] for region in ec2_client.describe_regions()['Regions']]
+            print(f"Scanning for RDS instances across all available AWS regions...")
 
         db_list = []
-        for region_name in all_regions:
+        for r_name in all_regions:
             try:
-                print(f"Checking region: {region_name}...")
-                rds_client = get_aws_client('rds', region_name=region_name)
+                print(f"Checking region: {r_name}...")
+                rds_client = get_aws_client('rds', region_name=r_name)
                 if not rds_client:
-                    print(f"Skipping region {region_name} due to client creation error.")
+                    print(f"Skipping region {r_name} due to client creation error.")
                     continue
                 
                 paginator = rds_client.get_paginator('describe_db_instances')
@@ -69,15 +73,15 @@ def list_all_rds_dbs():
                         db_list.append({
                             'DBInstanceIdentifier': instance.get('DBInstanceIdentifier'),
                             'Engine': instance.get('Engine'),
-                            'Region': region_name,
+                            'Region': r_name,
                             'DBParameterGroups': [group['DBParameterGroupName'] for group in instance.get('DBParameterGroups', [])]
                         })
             except Exception as region_error:
                 if "AccessDenied" in str(region_error) or "UnauthorizedOperation" in str(region_error):
-                    print(f"Skipping region {region_name} due to a permissions error.")
+                    print(f"Skipping region {r_name} due to a permissions error.")
                     continue
                 else:
-                    print(f"An unexpected error occurred in region {region_name}, skipping: {region_error}")
+                    print(f"An unexpected error occurred in region {r_name}, skipping: {region_error}")
                     continue
 
         with open('db_list.txt', 'w') as f:

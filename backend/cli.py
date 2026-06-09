@@ -31,6 +31,14 @@ async def main(prompt: str):
         app_name="db_discovery_app", user_id="user"
     )
 
+    # Clear old reports from previous runs to ensure no stale data persists
+    for filename in ["mysql_report.md", "postgres_report.md"]:
+        if os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except Exception as io_err:
+                print(f"Could not remove old report file {filename}: {io_err}")
+
     print(f"--- Running Orchestrator with Prompt: '{prompt}' ---")
 
     content = types.Content(role='user', parts=[types.Part.from_text(text=prompt)])
@@ -52,7 +60,7 @@ async def main(prompt: str):
 
     # --- Add this block to generate the HTML report ---
     print("\n--- Generating Final HTML Report ---")
-    from root_agent.html_report_generator import main as generate_html
+    from root_agent.report_generator import main as generate_html
     generate_html()
     print("--- HTML Report Generation Finished ---")
     # --- End of block ---

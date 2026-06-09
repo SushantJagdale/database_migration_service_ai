@@ -19,7 +19,7 @@
 - **PreferredMaintenanceWindow:** sun:09:36-sun:10:06
 - **UpgradeRolloutOrder:** second
 - **PendingModifiedValues:** {}
-- **LatestRestorableTime:** 2026-04-21 10:23:18+00:00
+- **LatestRestorableTime:** 2026-06-09 10:58:31+00:00
 - **MultiAZ:** False
 - **EngineVersion:** 8.0.44
 - **AutoMinorVersionUpgrade:** True
@@ -84,7 +84,7 @@ No alterations needed.
 - **PreferredMaintenanceWindow:** sun:06:58-sun:07:28
 - **UpgradeRolloutOrder:** second
 - **PendingModifiedValues:** {}
-- **LatestRestorableTime:** 2026-04-21 10:20:37+00:00
+- **LatestRestorableTime:** 2026-06-09 10:55:07+00:00
 - **MultiAZ:** False
 - **EngineVersion:** 8.0.44
 - **AutoMinorVersionUpgrade:** True

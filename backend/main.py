@@ -101,6 +101,14 @@ async def discover_databases(request: Request):
     if not prompt:
         raise HTTPException(status_code=400, detail="Missing prompt")
 
+    # Clear old reports from previous runs to ensure no stale data persists
+    for filename in ["mysql_report.md", "postgres_report.md"]:
+        if os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except Exception as io_err:
+                logging.warning(f"Could not remove old report file {filename}: {io_err}")
+
     try:
         # Run the agent asynchronously
         result = await run_agent(prompt)
