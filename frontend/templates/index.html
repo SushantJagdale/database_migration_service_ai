@@ -218,6 +218,55 @@
                             <div id="discover-result" class="mt-2"></div>
                         </div>
                     </div>
+
+                    <div class="card">
+                        <div class="card-header card-header-sm">GCP DMS Migration Management</div>
+                        <div class="card-body card-body-sm">
+                            <form id="dms-form">
+                                <div class="row">
+                                    <div class="col-md-4 form-group form-group-sm">
+                                        <label for="dms_job_name" style="font-size: 0.9rem;">DMS Migration Job Name</label>
+                                        <input type="text" class="form-control form-control-sm-custom" id="dms_job_name" name="dms_job_name" placeholder="e.g. mysql-migration-job" required>
+                                    </div>
+                                    <div class="col-md-4 form-group form-group-sm">
+                                        <label for="dms_region" style="font-size: 0.9rem;">GCP Region</label>
+                                        <select class="form-control form-control-sm-custom" id="dms_region" name="dms_region" required>
+                                            <option value="">Discover databases first</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4 form-group form-group-sm">
+                                        <label for="dms_instance_id" style="font-size: 0.9rem;">Source Database Instance Identifier</label>
+                                        <select class="form-control form-control-sm-custom" id="dms_instance_id" name="dms_instance_id" required>
+                                            <option value="">Discover databases first</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <button type="button" class="btn btn-primary btn-sm-custom mr-2 mb-2" id="configure-dms-btn">
+                                        <span class="spinner" id="configure-dms-spinner"></span>
+                                        <span>Configure DMS Job</span>
+                                    </button>
+                                    <button type="button" class="btn btn-info btn-sm-custom mr-2 mb-2" id="start-dms-btn">
+                                        <span class="spinner" id="start-dms-spinner"></span>
+                                        <span>Start DMS Job</span>
+                                    </button>
+                                    <button type="button" class="btn btn-secondary btn-sm-custom mr-2 mb-2" id="status-dms-btn">
+                                        <span class="spinner" id="status-dms-spinner"></span>
+                                        <span>Check DMS Status</span>
+                                    </button>
+                                    <button type="button" class="btn btn-danger btn-sm-custom mr-2 mb-2" id="promote-dms-btn">
+                                        <span class="spinner" id="promote-dms-spinner"></span>
+                                        <span>Promote Database</span>
+                                    </button>
+                                    <button type="button" class="btn btn-success btn-sm-custom mb-2" id="validate-dms-btn">
+                                        <span class="spinner" id="validate-dms-spinner"></span>
+                                        <span>Validate Database</span>
+                                    </button>
+                                </div>
+                                <div id="dms-result" class="mt-2"></div>
+                            </form>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -320,6 +369,62 @@
                         const minutes = Math.floor(timeDiff / 60);
                         const seconds = Math.floor(timeDiff % 60);
                         discoverResult.innerHTML = `<div class="alert alert-success">Report generated successfully in ${minutes} minutes and ${seconds} seconds.</div>`;
+
+                        // Populate migration dropdowns dynamically
+                        const instanceSelect = document.getElementById('dms_instance_id');
+                        const regionSelect = document.getElementById('dms_region');
+                        
+                        instanceSelect.innerHTML = '<option value="">Select a database</option>';
+                        regionSelect.innerHTML = '<option value="">Select a region</option>';
+                        
+                        const instances = data.instances || [];
+                        const uniqueGcpRegions = new Set();
+                        
+                        const awsToGcpRegionMap = {
+                            'ap-south-1': 'asia-south1',
+                            'us-east-1': 'us-east1',
+                            'us-east-2': 'us-east4',
+                            'us-west-1': 'us-west1',
+                            'us-west-2': 'us-west2',
+                            'eu-west-1': 'europe-west1',
+                            'eu-west-2': 'europe-west2',
+                            'eu-central-1': 'europe-west3',
+                            'ap-northeast-1': 'asia-northeast1',
+                            'ap-northeast-2': 'asia-northeast3',
+                            'ap-southeast-1': 'asia-southeast1',
+                            'ap-southeast-2': 'asia-southeast2',
+                            'ca-central-1': 'northamerica-northeast1',
+                            'sa-east-1': 'southamerica-east1'
+                        };
+                        
+                        instances.forEach(inst => {
+                            const opt = document.createElement('option');
+                            opt.value = inst.instance_id;
+                            opt.textContent = `${inst.instance_id} (${inst.engine})`;
+                            const gcpReg = awsToGcpRegionMap[inst.region] || 'us-central1';
+                            opt.setAttribute('data-gcp-region', gcpReg);
+                            opt.setAttribute('data-engine', inst.engine);
+                            instanceSelect.appendChild(opt);
+                            
+                            uniqueGcpRegions.add(gcpReg);
+                        });
+                        
+                        uniqueGcpRegions.forEach(gcpReg => {
+                            const opt = document.createElement('option');
+                            opt.value = gcpReg;
+                            opt.textContent = gcpReg;
+                            regionSelect.appendChild(opt);
+                        });
+                        
+                        instanceSelect.addEventListener('change', () => {
+                            const selectedOption = instanceSelect.options[instanceSelect.selectedIndex];
+                            if (selectedOption) {
+                                const gcpRegion = selectedOption.getAttribute('data-gcp-region');
+                                if (gcpRegion) {
+                                    regionSelect.value = gcpRegion;
+                                }
+                            }
+                        });
                     } else {
                         discoverResult.innerHTML = `<div class="alert alert-danger">Error fetching report: ${reportResponse.status} ${reportResponse.statusText}</div>`;
                     }
@@ -336,6 +441,165 @@
                 discoverBtn.disabled = false;
                 spinner.style.display = 'none';
                 buttonText.textContent = 'Discover Databases';
+            }
+        });
+
+        // --- GCP DMS Migration Event Listeners ---
+        async function callDmsAgent(prompt, buttonId, spinnerId) {
+            const btn = document.getElementById(buttonId);
+            const spinner = document.getElementById(spinnerId);
+            const resultDiv = document.getElementById('dms-result');
+            
+            resultDiv.innerHTML = '<div class="alert alert-info">DMS Agent is executing the task. This can take several minutes for setup...</div>';
+            btn.disabled = true;
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/configuredms', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt })
+                });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    let output = data.output;
+                    const formattedOutput = output.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                    resultDiv.innerHTML = `<div class="alert alert-success">${formattedOutput}</div>`;
+                } else {
+                    let errDetail = data.detail?.error || data.detail || 'Request failed';
+                    if (typeof errDetail === 'object') {
+                        errDetail = JSON.stringify(errDetail);
+                    }
+                    resultDiv.innerHTML = `<div class="alert alert-danger">Error: ${errDetail}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-danger">An unexpected error occurred: ${error}</div>`;
+            } finally {
+                btn.disabled = false;
+                spinner.style.display = 'none';
+            }
+        }
+
+        document.getElementById('configure-dms-btn').addEventListener('click', () => {
+            const jobName = document.getElementById('dms_job_name').value;
+            const region = document.getElementById('dms_region').value;
+            const instanceId = document.getElementById('dms_instance_id').value;
+
+            if (!jobName || !region || !instanceId) {
+                alert("Please fill in all fields (Job Name, GCP Region, and Source Database Instance Identifier).");
+                return;
+            }
+
+            const prompt = `Configure a continuous DMS job named ${jobName} in region ${region} for source database ${instanceId}.`;
+            callDmsAgent(prompt, 'configure-dms-btn', 'configure-dms-spinner');
+        });
+
+        document.getElementById('start-dms-btn').addEventListener('click', () => {
+            const jobName = document.getElementById('dms_job_name').value;
+            const region = document.getElementById('dms_region').value;
+            if (!jobName) {
+                alert("Please specify the DMS Migration Job Name.");
+                return;
+            }
+            const prompt = `Start database migration job ${jobName} in region ${region}.`;
+            callDmsAgent(prompt, 'start-dms-btn', 'start-dms-spinner');
+        });
+
+        document.getElementById('status-dms-btn').addEventListener('click', () => {
+            const jobName = document.getElementById('dms_job_name').value;
+            const region = document.getElementById('dms_region').value;
+            if (!jobName) {
+                alert("Please specify the DMS Migration Job Name.");
+                return;
+            }
+            const prompt = `Check status of database migration job ${jobName} in region ${region}.`;
+            callDmsAgent(prompt, 'status-dms-btn', 'status-dms-spinner');
+        });
+
+        document.getElementById('promote-dms-btn').addEventListener('click', () => {
+            const jobName = document.getElementById('dms_job_name').value;
+            const region = document.getElementById('dms_region').value;
+            if (!jobName) {
+                alert("Please specify the DMS Migration Job Name.");
+                return;
+            }
+            const prompt = `Promote target database migration job ${jobName} in region ${region}.`;
+            callDmsAgent(prompt, 'promote-dms-btn', 'promote-dms-spinner');
+        });
+
+        document.getElementById('validate-dms-btn').addEventListener('click', async () => {
+            const instanceSelect = document.getElementById('dms_instance_id');
+            const selectedOption = instanceSelect.options[instanceSelect.selectedIndex];
+            
+            if (!selectedOption || !selectedOption.value) {
+                alert("Please select a database instance first.");
+                return;
+            }
+            
+            const instanceId = selectedOption.value;
+            const engine = selectedOption.getAttribute('data-engine') || 'postgres';
+            
+            const btn = document.getElementById('validate-dms-btn');
+            const spinner = document.getElementById('validate-dms-spinner');
+            const resultDiv = document.getElementById('dms-result');
+            
+            resultDiv.innerHTML = '<div class="alert alert-info">Connecting to target Cloud SQL and querying schema structures. Please wait...</div>';
+            btn.disabled = true;
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/validate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ instance_id: instanceId, engine: engine })
+                });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    let html = '<div class="alert alert-success">';
+                    html += '<h5 class="mb-2"><strong>Database Validation Report</strong></h5>';
+                    if (data.databases && data.databases.length > 0) {
+                        data.databases.forEach(db => {
+                            html += `<div class="mt-3"><strong>Database Name:</strong> <code class="text-dark bg-light px-2 py-1 rounded">${db.name}</code>`;
+                            if (db.error) {
+                                html += `<div class="text-danger mt-1">Failed to query details: ${db.error}</div>`;
+                            } else if (db.schemas) {
+                                db.schemas.forEach(sch => {
+                                    html += `<div class="ml-3 mt-2"><strong>Schema:</strong> <code>${sch.name}</code>`;
+                                    if (sch.tables && sch.tables.length > 0) {
+                                        html += '<table class="table table-sm table-bordered mt-2 bg-white" style="max-width: 600px; font-size: 0.9rem;">';
+                                        html += '<thead class="thead-light"><tr><th>Table Name</th><th class="text-right">Row Count</th></tr></thead><tbody>';
+                                        sch.tables.forEach(tbl => {
+                                            const rowCountText = tbl.rows === -1 ? '<span class="text-warning">Count Error</span>' : tbl.rows.toLocaleString();
+                                            html += `<tr><td>${tbl.name}</td><td class="text-right">${rowCountText}</td></tr>`;
+                                        });
+                                        html += '</tbody></table>';
+                                    } else {
+                                        html += '<div class="text-muted ml-3 mt-1">No tables found.</div>';
+                                    }
+                                    html += '</div>';
+                                });
+                            }
+                            html += '</div><hr class="my-2">';
+                        });
+                    } else {
+                        html += '<div>No databases found.</div>';
+                    }
+                    html += '</div>';
+                    resultDiv.innerHTML = html;
+                } else {
+                    let errDetail = data.detail?.error || data.detail || 'Validation failed';
+                    if (typeof errDetail === 'object') {
+                        errDetail = JSON.stringify(errDetail);
+                    }
+                    resultDiv.innerHTML = `<div class="alert alert-danger"><strong>Error:</strong> ${errDetail}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-danger"><strong>An unexpected error occurred:</strong> ${error}</div>`;
+            } finally {
+                btn.disabled = false;
+                spinner.style.display = 'none';
             }
         });
     </script>

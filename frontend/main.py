@@ -11,6 +11,20 @@ from pydantic import BaseModel
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
+# Helper to load .env file manually
+def load_env_file(filepath=".env"):
+    if os.path.exists(filepath):
+        with open(filepath, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    val = val.strip().strip('"').strip("'")
+                    os.environ[key.strip()] = val
+
+# Load local .env if present (fallback for local development)
+load_env_file()
+
 # The URL of the backend service will be injected as an environment variable
 BACKEND_URL = os.environ.get("BACKEND_URL")
 PROJECT_ID = os.environ.get("PROJECT_ID", "migration-demo-429608")
@@ -23,6 +37,13 @@ class ConfigureRequest(BaseModel):
 
 class DiscoverRequest(BaseModel):
     prompt: str
+
+class ConfigureDmsRequest(BaseModel):
+    prompt: str
+
+class ValidateRequest(BaseModel):
+    instance_id: str
+    engine: str
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -80,6 +101,39 @@ async def discover(payload: DiscoverRequest):
 
     try:
         response = requests.post(f"{BACKEND_URL}/discover", json={"prompt": prompt})
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Failed to connect to backend: {e}")
+    except requests.exceptions.JSONDecodeError:
+        raise HTTPException(status_code=500, detail=f"Invalid JSON response from backend: {response.text}")
+
+@app.post("/configuredms")
+async def configure_dms(payload: ConfigureDmsRequest):
+    if not BACKEND_URL:
+        raise HTTPException(status_code=500, detail="BACKEND_URL is not configured")
+
+    prompt = payload.prompt
+
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Missing prompt")
+
+    try:
+        response = requests.post(f"{BACKEND_URL}/configuredms", json={"prompt": prompt})
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Failed to connect to backend: {e}")
+    except requests.exceptions.JSONDecodeError:
+        raise HTTPException(status_code=500, detail=f"Invalid JSON response from backend: {response.text}")
+
+@app.post("/validate")
+async def validate_proxy(payload: ValidateRequest):
+    if not BACKEND_URL:
+        raise HTTPException(status_code=500, detail="BACKEND_URL is not configured")
+
+    try:
+        response = requests.post(f"{BACKEND_URL}/validate", json=payload.model_dump())
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:

@@ -18,4 +18,6 @@ allow_unauthenticated = true
 
 # Disable the Org Policy domain restriction for this project to allow public access
 override_org_domain_restriction = true
-
+# VPC configurations for private database connectivity from Cloud Run
+vpc_network    = "gc-vpc"
+vpc_subnetwork = "subnet-asia1"

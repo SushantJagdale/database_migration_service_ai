@@ -3,11 +3,11 @@ steps:
   args:
   - 'build'
   - '--tag'
-  - 'gcr.io/migration-demo-429608/dms-frontend:latest'
+  - 'gcr.io/$PROJECT_ID/dms-frontend:latest'
   - '--build-arg'
-  - 'PROJECT_ID=migration-demo-429608'
+  - 'PROJECT_ID=$PROJECT_ID'
   - '--build-arg'
   - 'REGION=us-central1'
   - '.'
 images:
-- 'gcr.io/migration-demo-429608/dms-frontend:latest'
+- 'gcr.io/$PROJECT_ID/dms-frontend:latest'

@@ -16,8 +16,9 @@ def generate_final_report(user_prompt: str) -> str:
         script_path = os.path.join(os.path.dirname(__file__), '..', 'report_generator.py')
         
         # Ensure the script is called with the correct python executable from the venv
-        python_executable = os.path.join(os.getcwd(), 'venv', 'bin', 'python')
-
+        python_executable = os.path.join(os.getcwd(), '.venv', 'bin', 'python')
+        if not os.path.exists(python_executable):
+            python_executable = os.path.join(os.getcwd(), 'backend', '.venv', 'bin', 'python')
         if not os.path.exists(python_executable):
             python_executable = 'python3' # Fallback if venv python not found
 

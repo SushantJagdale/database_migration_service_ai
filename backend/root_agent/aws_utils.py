@@ -12,6 +12,7 @@ def get_aws_session():
     - Shared credential file (~/.aws/credentials)
     - IAM role for Amazon EC2 instances
     """
+    print(f"[DEBUG aws_utils] AWS_ACCESS_KEY_ID in env: {os.environ.get('AWS_ACCESS_KEY_ID')}")
     try:
         return boto3.Session()
     except Exception as e:
@@ -151,3 +152,8 @@ def get_specific_db_parameter(group_name, region_name, parameter_name):
     except Exception as e:
         print(f"Error fetching parameter {parameter_name} for group {group_name}: {e}")
         return None
+
+def reset_aws_session():
+    """Clears the cache for AWS session and client to force reloading credentials."""
+    get_aws_session.cache_clear()
+    get_aws_client.cache_clear()

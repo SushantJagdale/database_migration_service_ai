@@ -37,9 +37,17 @@ def check_mysql_replication_params(instance_id: str, region: str) -> str:
         
         log_bin_param = next((p for p in params if p['ParameterName'] == 'log_bin'), None)
         binlog_format_param = next((p for p in params if p['ParameterName'] == 'binlog_format'), None)
+        binlog_retention_param = next((p for p in params if p['ParameterName'] in ['binlog_retention_hours', 'binlog_retention_period']), None)
 
-        log_bin = log_bin_param.get('ParameterValue', 'Not Set') if log_bin_param else 'Not Set'
+        # Check BackupRetentionPeriod to determine log_bin status for RDS MySQL
+        backup_retention = metadata.get('BackupRetentionPeriod', 0)
+        if backup_retention > 0:
+            log_bin = 'ON'
+        else:
+            log_bin = log_bin_param.get('ParameterValue', 'OFF') if log_bin_param else 'OFF'
+
         binlog_format = binlog_format_param.get('ParameterValue', 'Not Set') if binlog_format_param else 'Not Set'
+        binlog_retention = binlog_retention_param.get('ParameterValue', 'Not Set') if binlog_retention_param else 'Not Set'
 
         results = []
         if log_bin == 'ON':
@@ -51,6 +59,11 @@ def check_mysql_replication_params(instance_id: str, region: str) -> str:
             results.append("PASS: binlog_format is ROW.")
         else:
             results.append(f"FAIL: binlog_format is '{binlog_format}'. It must be 'ROW'.")
+            
+        # binlog_retention_hours is configured dynamically via stored procedure and not present in the RDS Parameter Group.
+        # Since Boto3 cannot read it and we don't connect via SQL during discovery, we report it as an INFO advisory.
+        results.append("INFO: binlog_retention_hours cannot be verified from the Parameter Group. Please ensure it is set to a non-zero value (e.g. 24).")
+        results.append("Suggestion: Run CALL mysql.rds_set_configuration('binlog retention hours', 24); on the database to verify/set it.")
             
         return "\n".join(results)
     except Exception as e:

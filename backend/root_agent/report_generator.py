@@ -98,6 +98,63 @@ def generate_html_tables(report_data_list, columns):
         html += generate_html_table(data, columns)
     return html
 
+def get_rds_specs(instance_class):
+    """Returns (vCPUs, Memory) for a given AWS RDS instance class."""
+    if not instance_class:
+        return "N/A", "N/A"
+        
+    ic_lower = instance_class.lower()
+    
+    RDS_SPECS = {
+        "db.t3.micro": (2, "1 GiB"),
+        "db.t3.small": (2, "2 GiB"),
+        "db.t3.medium": (2, "4 GiB"),
+        "db.t3.large": (2, "8 GiB"),
+        "db.t3.xlarge": (4, "16 GiB"),
+        "db.t3.2xlarge": (8, "32 GiB"),
+        
+        "db.t2.micro": (1, "1 GiB"),
+        "db.t2.small": (1, "2 GiB"),
+        "db.t2.medium": (2, "4 GiB"),
+        "db.t2.large": (2, "8 GiB"),
+        
+        "db.m5.large": (2, "8 GiB"),
+        "db.m5.xlarge": (4, "16 GiB"),
+        "db.m5.2xlarge": (8, "32 GiB"),
+        "db.m5.4xlarge": (16, "64 GiB"),
+        "db.m5.8xlarge": (32, "128 GiB"),
+        
+        "db.r5.large": (2, "16 GiB"),
+        "db.r5.xlarge": (4, "32 GiB"),
+        "db.r5.2xlarge": (8, "64 GiB"),
+        "db.r5.4xlarge": (16, "128 GiB"),
+    }
+    
+    if ic_lower in RDS_SPECS:
+        return RDS_SPECS[ic_lower]
+        
+    parts = ic_lower.split('.')
+    if len(parts) >= 3:
+        size = parts[2]
+        size_map = {
+            "nano": (1, "0.5 GiB"),
+            "micro": (2, "1 GiB"),
+            "small": (2, "2 GiB"),
+            "medium": (2, "4 GiB"),
+            "large": (2, "8 GiB"),
+            "xlarge": (4, "16 GiB"),
+            "2xlarge": (8, "32 GiB"),
+            "4xlarge": (16, "64 GiB"),
+            "8xlarge": (32, "128 GiB"),
+            "12xlarge": (48, "192 GiB"),
+            "16xlarge": (64, "256 GiB"),
+            "24xlarge": (96, "384 GiB"),
+        }
+        if size in size_map:
+            return size_map[size]
+            
+    return "Unknown", "Unknown"
+
 def generate_html_table(data, columns):
     """Generates a single HTML table with rowspan for metadata and multi-color statuses."""
     if not data or not data.get("checks"):
@@ -112,12 +169,12 @@ def generate_html_table(data, columns):
         "Engine": "DB Engine",
         "EngineVersion": "Engine Version",
         "Region": "Region",
+        "DBInstanceClass": "Instance Class",
+        "vCPU": "vCPU",
+        "Memory": "Memory",
+        "Storage": "Storage Size",
         "check_name": "Param Check",
-        "status": "Status",
-        "configure_dms_job": "Configure DMS Job",
-        "start_dms_job": "Start DMS Job",
-        "check_dms_status": "Check DMS Status",
-        "promote_database": "Promote Database"
+        "status": "Status"
     }
 
     html = "<table><tr>"
@@ -127,6 +184,13 @@ def generate_html_table(data, columns):
     html += "</tr>"
 
     metadata = data.get("metadata", {})
+    # Enrich metadata with RDS vCPU and Memory specs
+    db_class = metadata.get("DBInstanceClass")
+    vcpu, memory = get_rds_specs(db_class)
+    metadata["vCPU"] = vcpu
+    metadata["Memory"] = memory
+    metadata["Storage"] = f"{metadata.get('AllocatedStorage', 'N/A')} GiB"
+
     db_id = metadata.get("DBInstanceIdentifier", "").replace("-", "") # Sanitize for ID
     is_first_row = True
 
@@ -135,7 +199,7 @@ def generate_html_table(data, columns):
 
         if is_first_row:
             for col in columns:
-                if col not in ["check_name", "status", "configure_dms_job", "start_dms_job", "check_dms_status", "promote_database"]:
+                if col not in ["check_name", "status"]:
                     value = metadata.get(col, "N/A")
                     html += f"<td rowspan={num_checks}>{value}</td>"
         
@@ -156,17 +220,32 @@ def generate_html_table(data, columns):
         html += f"<td><strong>{check_name}</strong></td>"
         html += f"<td class='status-cell'>{formatted_status}</td>"
 
-        if is_first_row:
-            html += f"<td rowspan={num_checks}><button id='configure-btn-{db_id}' onclick='handleButtonClick(this, \"DMS Job Configured!\", \"start-btn-{db_id}\")'>Configure DMS Job</button></td>"
-            html += f"<td rowspan={num_checks}><button id='start-btn-{db_id}' onclick='handleButtonClick(this, \"Database Replication has Started!\", \"check-btn-{db_id}\")' disabled>Start DMS Job</button></td>"
-            html += f"<td rowspan={num_checks}><button id='check-btn-{db_id}' onclick='handleButtonClick(this, \"Database is in CDC status!, lag is 0\", \"promote-btn-{db_id}\")' disabled>Check DMS Status</button></td>"
-            html += f"<td rowspan={num_checks}><button id='promote-btn-{db_id}' onclick='handleButtonClick(this, \"Database is Promoted..!\", null)' disabled>Promote Database</button></td>"
-
         html += "</tr>"
         is_first_row = False
     
     html += "</table>"
     return html
+
+def find_report_file(filename):
+    """Finds the report file in CWD, backend/, or parent directories, returning the newest if duplicates exist."""
+    search_dirs = [
+        os.getcwd(),
+        os.path.join(os.getcwd(), "backend") if not os.getcwd().endswith("backend") else None,
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), # backend
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # root
+    ]
+    search_dirs = list(set([d for d in search_dirs if d and os.path.exists(d)]))
+    
+    candidate_files = []
+    for s_dir in search_dirs:
+        full_path = os.path.join(s_dir, filename)
+        if os.path.exists(full_path):
+            candidate_files.append(full_path)
+            
+    if not candidate_files:
+        return filename
+        
+    return max(candidate_files, key=os.path.getmtime)
 
 def main():
     """Generates the final HTML report."""
@@ -258,10 +337,10 @@ def main():
     
     aws_account_id = os.getenv("AWS_ACCOUNT_ID", "Not Provided")
     
-    mysql_reports = parse_md_report("mysql_report.md")
-    postgres_reports = parse_md_report("postgres_report.md")
+    mysql_reports = parse_md_report(find_report_file("mysql_report.md"))
+    postgres_reports = parse_md_report(find_report_file("postgres_report.md"))
     
-    columns = ["DBInstanceIdentifier", "Engine", "EngineVersion", "Region", "check_name", "status", "configure_dms_job", "start_dms_job", "check_dms_status", "promote_database"]
+    columns = ["DBInstanceIdentifier", "Engine", "EngineVersion", "Region", "DBInstanceClass", "vCPU", "Memory", "Storage", "check_name", "status"]
     
     mysql_html = ""
     if mysql_reports:

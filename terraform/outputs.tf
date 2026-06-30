@@ -8,4 +8,12 @@ output "frontend_url" {
   description = "The URL of the frontend Cloud Run service."
 }
 
+output "frontend_image_url" {
+  value       = data.google_container_registry_image.frontend.image_url
+  description = "The resolved image URL with digest of the frontend image."
+}
 
+output "backend_image_url" {
+  value       = data.google_container_registry_image.backend.image_url
+  description = "The resolved image URL with digest of the backend image."
+}

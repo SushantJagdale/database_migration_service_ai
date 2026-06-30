@@ -75,12 +75,46 @@ data "google_secret_manager_secret" "google_api_key" {
   project   = var.project_id
 }
 
-# Grant the backend service account access to read the secret
-resource "google_secret_manager_secret_iam_member" "backend_secret_accessor" {
-  project   = var.project_id
-  secret_id = data.google_secret_manager_secret.google_api_key.secret_id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.backend.email}"
+# Fetch the latest image digests to force redeployment when images are rebuilt
+data "google_container_registry_image" "backend" {
+  name    = "dms-backend"
+  project = var.project_id
+  tag     = "latest"
+}
+
+data "google_container_registry_image" "frontend" {
+  name    = "dms-frontend"
+  project = var.project_id
+  tag     = "latest"
+}
+
+# Grant the backend service account access to read secrets in Secret Manager at the Project Level
+# This allows the backend to access dynamically created database credential secrets.
+resource "google_project_iam_member" "backend_secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${google_service_account.backend.email}"
+}
+
+# Grant the backend service account access to manage Database Migration Service
+resource "google_project_iam_member" "backend_dms_admin" {
+  project = var.project_id
+  role    = "roles/datamigration.admin"
+  member  = "serviceAccount:${google_service_account.backend.email}"
+}
+
+# Grant the backend service account access to manage Cloud SQL instances (for target provisioning)
+resource "google_project_iam_member" "backend_cloudsql_admin" {
+  project = var.project_id
+  role    = "roles/cloudsql.admin"
+  member  = "serviceAccount:${google_service_account.backend.email}"
+}
+
+# Grant the backend service account access to view compute networks and target VPN gateways
+resource "google_project_iam_member" "backend_compute_viewer" {
+  project = var.project_id
+  role    = "roles/compute.networkViewer"
+  member  = "serviceAccount:${google_service_account.backend.email}"
 }
 
 # --- Cloud Run: Backend Service ---
@@ -95,8 +129,16 @@ resource "google_cloud_run_v2_service" "backend" {
   template {
     service_account = google_service_account.backend.email
 
+    vpc_access {
+      network_interfaces {
+        network    = var.vpc_network
+        subnetwork = var.vpc_subnetwork
+      }
+      egress = "PRIVATE_RANGES_ONLY"
+    }
+
     containers {
-      image = var.backend_image
+      image = data.google_container_registry_image.backend.image_url
       ports {
         container_port = 8080
       }
@@ -135,7 +177,10 @@ resource "google_cloud_run_v2_service" "backend" {
   # Ensure IAM bindings are created before service deployment
   depends_on = [
     google_project_service.run,
-    google_secret_manager_secret_iam_member.backend_secret_accessor
+    google_project_iam_member.backend_secret_accessor,
+    google_project_iam_member.backend_dms_admin,
+    google_project_iam_member.backend_cloudsql_admin,
+    google_project_iam_member.backend_compute_viewer
   ]
 }
 
@@ -165,7 +210,7 @@ resource "google_cloud_run_v2_service" "frontend" {
     service_account = google_service_account.frontend.email
 
     containers {
-      image = var.frontend_image
+      image = data.google_container_registry_image.frontend.image_url
       ports {
         container_port = 8080
       }

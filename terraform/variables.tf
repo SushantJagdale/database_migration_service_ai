@@ -54,3 +54,14 @@ variable "override_org_domain_restriction" {
 }
 
 
+variable "vpc_network" {
+  type        = string
+  description = "The VPC network to route private Cloud Run traffic to."
+  default     = "gc-vpc"
+}
+
+variable "vpc_subnetwork" {
+  type        = string
+  description = "The VPC subnetwork in the region to route private Cloud Run traffic to."
+  default     = "subnet-asia1"
+}

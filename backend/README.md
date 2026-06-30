@@ -60,3 +60,46 @@ The following reports are generated in the root directory:
 *   `mysql_report.md`: A Markdown report of the findings for all MySQL instances.
 *   `postgres_report.md`: A Markdown report of the findings for all PostgreSQL instances.
 *   `final_report.html`: A consolidated HTML report of the findings for all database instances.
+
+## GCP DMS Migration Setup Requirements
+
+Before triggering the **Configure DMS Job** step in the frontend, you must ensure that the source database credentials have been populated in GCP Secret Manager in the target project. 
+
+The backend agent retrieves these credentials dynamically to create the migration connection profiles.
+
+### Credentials Secret Structure:
+For each discovered source database (e.g., `gemini-mysql-instance-1`), create the following two secrets in Secret Manager:
+1.  **Username Secret:**
+    *   **Secret Name:** `{source_db_instance_id}_user` (e.g., `gemini-mysql-instance-1_user`)
+    *   **Secret Value:** The database master/migration username (e.g., `admin`).
+2.  **Password Secret:**
+    *   **Secret Name:** `{source_db_instance_id}_password` (e.g., `gemini-mysql-instance-1_password`)
+    *   **Secret Value:** The database password.
+
+Ensure the service account running the backend application (or your active `gcloud` context if running locally) has the **Secret Manager Secret Accessor** (`roles/secretmanager.secretAccessor`) permission on these secrets.
+
+---
+
+## Recent Upgrades & Architectural Enhancements
+
+During this session, several upgrades, structural improvements, and bug fixes were applied to the application:
+
+### 1. Dynamic AWS Credential Rotation
+*   **Boto3 Session Cache Clearing:** Implemented a cache reset function `reset_aws_session()` in [aws_utils.py](file:///Users/sushantjagdale/git/imp/database_migration_service_ai/backend/root_agent/aws_utils.py) that clears cached Boto3 client and session objects. This is executed inside the `/configure` route in [main.py](file:///Users/sushantjagdale/git/imp/database_migration_service_ai/backend/main.py) whenever new AWS credentials are submitted, allowing seamless dynamic rotation.
+
+### 2. Sizing Optimization
+*   **Cloud SQL Sizing Match:** Updated [dbmigration_agent.py](file:///Users/sushantjagdale/git/imp/database_migration_service_ai/backend/root_agent/dbmigration/dbmigration_agent.py) to extract the source RDS database's storage size (`AllocatedStorage`) and automatically assign a matching or slightly larger disk size to the target Cloud SQL connection profile during target database provisioning.
+
+### 3. Verification Report Enhancements
+*   **Source Specs Display:** Added dynamic specification lookup based on the RDS `DBInstanceClass`. The consolidated HTML report table now details the source DB's **Instance Class**, **vCPUs**, **Memory size**, and **Storage size**.
+*   **Replication Checks Refinement:**
+    *   `log_bin` is now inferred from `BackupRetentionPeriod` in Boto3 metadata (since RDS enables binary logging when automated backups are enabled), avoiding connection profile dependencies.
+    *   `binlog_retention_hours` check was converted from a hard `FAIL` to an `INFO` advisory. Because this setting is dynamic in RDS MySQL (via stored procedures) and absent from Parameter Groups, the report now prompts you to verify it manually rather than falsely failing.
+*   **Clean Layout:** Removed obsolete client-side action buttons from the HTML pre-migration report table to declutter the "View Report" section.
+
+### 4. Frontend UI Upgrades
+*   **Interactive Form Dropdowns:** Replaced the text input boxes in the *GCP DMS Migration Management* section in [index.html](file:///Users/sushantjagdale/git/imp/database_migration_service_ai/frontend/templates/index.html) with dropdown `<select>` selectors.
+*   **Automatic Region Mapping:** The dropdowns are dynamically populated with instances discovered during the AWS scan. Selecting a source database automatically maps the AWS region to its closest GCP region (e.g. `ap-south-1` maps to `asia-south1`) and auto-fills the GCP region selector.
+
+### 5. DMS Configuration Fixes
+*   **Gcloud Provisioning Argument Correction:** Resolved a target provisioning failure by updating the DMS agent command builder in `dbmigration_agent.py` to use the correct `--data-disk-size` flag instead of the invalid `--storage-size` flag.

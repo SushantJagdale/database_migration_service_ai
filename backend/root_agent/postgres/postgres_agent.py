@@ -25,7 +25,7 @@ def check_postgres_version(instance_id: str, region: str) -> str:
         return f"Error checking PostgreSQL version: {e}"
 
 def check_postgres_logical_params(instance_id: str, region: str) -> str:
-    """Checks PostgreSQL logical replication parameters (wal_level, max_replication_slots)."""
+    """Checks PostgreSQL logical replication parameters (wal_level, max_replication_slots, rds.logical_replication, shared_preload_libraries)."""
     try:
         metadata = get_rds_metadata(instance_id, region)
         if not metadata or not metadata.get('DBParameterGroups'):
@@ -37,17 +37,30 @@ def check_postgres_logical_params(instance_id: str, region: str) -> str:
         
         wal_level = next((p.get('ParameterValue') for p in params if p['ParameterName'] == 'wal_level'), 'Not Set')
         max_slots = next((p.get('ParameterValue') for p in params if p['ParameterName'] == 'max_replication_slots'), 'Not Set')
+        rds_logical = next((p.get('ParameterValue') for p in params if p['ParameterName'] == 'rds.logical_replication'), 'Not Set')
+        shared_preload = next((p.get('ParameterValue') for p in params if p['ParameterName'] == 'shared_preload_libraries'), 'Not Set')
 
         results = []
+        if rds_logical == '1':
+            results.append("PASS: rds.logical_replication is 1.")
+        else:
+            results.append(f"FAIL: rds.logical_replication is '{rds_logical}'. It must be set to '1' (ON).\nSuggestion: Set rds.logical_replication to 1 in the Parameter Group and reboot the database instance.")
+
         if wal_level == 'logical':
             results.append("PASS: wal_level is logical.")
         else:
-            results.append(f"FAIL: wal_level is '{wal_level}'. It must be 'logical'.")
+            results.append(f"FAIL: wal_level is '{wal_level}'. It must be 'logical'.\nSuggestion: Ensure rds.logical_replication is set to 1 and the database instance has been rebooted to apply the change.")
         
         if max_slots != 'Not Set' and int(max_slots) > 5:
             results.append(f"PASS: max_replication_slots is set to {max_slots}.")
         else:
-            results.append(f"FAIL: max_replication_slots is '{max_slots}'. It should be greater than 5.")
+            results.append(f"FAIL: max_replication_slots is '{max_slots}'. It should be greater than 5.\nSuggestion: Set max_replication_slots to a value greater than 5 (e.g. 10) in the Parameter Group.")
+            
+        if shared_preload != 'Not Set' and 'pglogical' in shared_preload:
+            results.append(f"PASS: pglogical is loaded in shared_preload_libraries ({shared_preload}).")
+        else:
+            results.append(f"FAIL: pglogical is missing from shared_preload_libraries. Current: '{shared_preload}'.\nSuggestion: Add 'pglogical' to shared_preload_libraries in the Parameter Group and reboot the instance. Also, ensure you run 'CREATE EXTENSION pglogical;' in each database to be migrated.")
+            
         return "\n".join(results)
     except Exception as e:
         return f"Error checking PostgreSQL logical params: {e}"

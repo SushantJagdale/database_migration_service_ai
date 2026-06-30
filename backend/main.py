@@ -3,10 +3,15 @@ from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from root_agent.agent import root_agent
+from root_agent.dbmigration.dbmigration_agent import dbmigration_dms_agent, get_secret
+from root_agent.aws_utils import reset_aws_session
+from database_validator import validate_database_metrics
 import asyncio
 from google.genai import types
 from google.adk.runners import InMemoryRunner
 import os
+import json
+import subprocess
 import logging
 import sys
 from io import StringIO
@@ -76,6 +81,9 @@ async def configure_aws(payload: ConfigureRequest):
         os.environ['AWS_ACCESS_KEY_ID'] = payload.aws_access_key_id
         os.environ['AWS_SECRET_ACCESS_KEY'] = payload.aws_secret_access_key
         
+        # Clear Boto3 session cache to pick up the new credentials
+        reset_aws_session()
+        
         logging.info("AWS credentials and Account ID configured successfully.")
         return {"message": "AWS credentials and Account ID configured successfully."}
     except Exception as e:
@@ -120,12 +128,100 @@ async def discover_databases(request: Request):
             host = request.headers.get("host", request.url.hostname)
             base_url = f"{scheme}://{host}"
             report_url = f"{base_url}/artifacts/{os.path.basename(report_path)}"
-            return {"report_url": report_url}
+            
+            # Extract instances list for frontend dropdowns
+            from root_agent.report_generator import parse_md_report, find_report_file
+            
+            mysql_file = find_report_file("mysql_report.md")
+            postgres_file = find_report_file("postgres_report.md")
+            
+            mysql_data = parse_md_report(mysql_file) if os.path.exists(mysql_file) else []
+            postgres_data = parse_md_report(postgres_file) if os.path.exists(postgres_file) else []
+            
+            instances = []
+            for r in mysql_data + postgres_data:
+                metadata = r.get("metadata", {})
+                inst_id = metadata.get("DBInstanceIdentifier")
+                region = metadata.get("Region")
+                engine = metadata.get("Engine")
+                if inst_id:
+                    instances.append({
+                        "instance_id": inst_id,
+                        "region": region or "us-east-1",
+                        "engine": engine or "mysql"
+                    })
+            
+            return {
+                "report_url": report_url,
+                "instances": instances
+            }
         else:
             raise HTTPException(status_code=500, detail={"error": "Could not generate report.", "details": result})
     except Exception as e:
         logging.exception("An error occurred while running the agent.")
         raise HTTPException(status_code=500, detail={"error": str(e), "logs": "Check backend logs for more details."})
+
+@app.post('/configuredms')
+async def configure_dms(request: Request):
+    """
+    This endpoint triggers the dbmigration_dms_agent to configure connection profiles,
+    create DMS migration jobs, check status, or promote databases.
+    """
+    try:
+        body = await request.json()
+        prompt = body.get("prompt")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body.")
+
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Missing prompt")
+
+    try:
+        # Run the agent asynchronously
+        result = await run_dbmigration_agent(prompt)
+        return result
+    except Exception as e:
+        logging.exception("An error occurred while running the DMS agent.")
+        raise HTTPException(status_code=500, detail={"error": str(e), "logs": "Check backend logs for more details."})
+
+async def run_dbmigration_agent(prompt: str):
+    """
+    Initializes the runner, creates a session, and runs the dbmigration agent with the user's prompt,
+    capturing and returning logs.
+    """
+    # Redirect stdout and stderr to capture logs
+    old_stdout = sys.stdout
+    old_stderr = sys.stderr
+    sys.stdout = captured_stdout = StringIO()
+    sys.stderr = captured_stderr = StringIO()
+
+    runner = InMemoryRunner(
+        agent=dbmigration_dms_agent,
+        app_name="db_migration_app",
+    )
+    session = await runner.session_service.create_session(
+        app_name="db_migration_app", user_id="user"
+    )
+
+    content = types.Content(role='user', parts=[types.Part.from_text(text=prompt)])
+
+    final_response = ""
+    try:
+        async for event in runner.run_async(
+            user_id="user",
+            session_id=session.id,
+            new_message=content,
+        ):
+            if event.content and event.content.parts and event.content.parts[0].text:
+                final_response = event.content.parts[0].text
+    finally:
+        # Restore stdout and stderr
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+
+    logs = captured_stdout.getvalue() + "\n" + captured_stderr.getvalue()
+    print({"output": final_response, "logs": logs})
+    return {"output": final_response, "logs": logs}
 
 async def run_agent(prompt: str):
     """
@@ -165,6 +261,102 @@ async def run_agent(prompt: str):
     logs = captured_stdout.getvalue() + "\n" + captured_stderr.getvalue()
     print({"output": final_response, "logs": logs})
     return {"report_path": final_response, "logs": logs}
+
+class ValidateRequest(BaseModel):
+    instance_id: str
+    engine: str
+
+def get_target_instance_ip(instance_id: str) -> str:
+    """
+    Finds the IP address of the target Cloud SQL instance.
+    Checks for '{instance_id}' first, then '{instance_id}-tgt'.
+    Returns the PRIVATE IP if available, otherwise PRIMARY (public) IP.
+    """
+    project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("PROJECT_ID")
+    
+    # Try names
+    names_to_try = [instance_id, f"{instance_id}-tgt"]
+    
+    for name in names_to_try:
+        cmd = ["gcloud", "sql", "instances", "describe", name, f"--project={project_id}", "--format=json"]
+        logging.info(f"Running command to describe SQL instance: {' '.join(cmd)}")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            instance_data = json.loads(result.stdout)
+            ip_addresses = instance_data.get("ipAddresses", [])
+            
+            # Find private IP first
+            for ip in ip_addresses:
+                if ip.get("type") == "PRIVATE":
+                    logging.info(f"Found private IP for Cloud SQL instance '{name}': {ip.get('ipAddress')}")
+                    return ip.get("ipAddress")
+            
+            # Fallback to primary public IP
+            for ip in ip_addresses:
+                if ip.get("type") == "PRIMARY":
+                    logging.info(f"Found primary IP for Cloud SQL instance '{name}': {ip.get('ipAddress')}")
+                    return ip.get("ipAddress")
+                    
+        except subprocess.CalledProcessError as err:
+            logging.warning(f"Could not describe Cloud SQL instance '{name}': {err.stderr.strip()}")
+        except Exception as e:
+            logging.error(f"Error parsing Cloud SQL instance details: {e}")
+            
+    raise Exception(f"Could not find running Cloud SQL instance or resolve IP for: {instance_id}")
+
+@app.post('/validate')
+async def validate_database_endpoint(payload: ValidateRequest):
+    """
+    Connects to the target Cloud SQL instance, counts tables, schemas, and rows,
+    and returns a summary report.
+    """
+    try:
+        if not payload.instance_id or not payload.engine:
+            raise HTTPException(status_code=400, detail="Missing instance_id or engine.")
+            
+        instance_id = payload.instance_id
+        engine = payload.engine.lower()
+        
+        # 1. Resolve host IP of the target Cloud SQL instance
+        try:
+            target_ip = get_target_instance_ip(instance_id)
+        except Exception as resolve_err:
+            logging.exception("Failed to resolve target IP address.")
+            raise HTTPException(status_code=404, detail=str(resolve_err))
+            
+        # 2. Fetch the password from Secret Manager
+        try:
+            pass_secret = f"{instance_id}_password"
+            db_password = get_secret(pass_secret)
+        except Exception as secret_err:
+            logging.exception("Failed to fetch password from Secret Manager.")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch database credentials from Secret Manager: {secret_err}")
+            
+        # 3. Determine connection properties
+        is_postgres = "postgres" in engine
+        db_user = "postgres" if is_postgres else "root"
+        db_port = 5432 if is_postgres else 3306
+        
+        # 4. Perform direct database metrics queries
+        logging.info(f"Triggering direct validation on {engine} target at {target_ip}:{db_port}")
+        validation_results = validate_database_metrics(
+            engine=engine,
+            host=target_ip,
+            port=db_port,
+            user=db_user,
+            password=db_password
+        )
+        
+        if "error" in validation_results:
+            raise HTTPException(status_code=500, detail=validation_results["error"])
+            
+        return validation_results
+        
+    except HTTPException as http_err:
+        raise http_err
+    except Exception as e:
+        logging.exception("Unexpected error during database validation.")
+        raise HTTPException(status_code=500, detail=f"Unexpected validation error: {str(e)}")
 
 if __name__ == '__main__':
     uvicorn.run(app, host='0.0.0.0', port=8090)
