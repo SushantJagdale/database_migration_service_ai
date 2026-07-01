@@ -15,7 +15,7 @@ def check_postgres_version(instance_id: str, region: str) -> str:
         metadata = get_rds_metadata(instance_id, region)
         if metadata:
             engine_version = metadata.get('EngineVersion', 'Unknown')
-            supported_versions = ['10', '11', '12', '13', '14', '15']
+            supported_versions = ['10', '11', '12', '13', '14', '15', '16', '17']
             if any(engine_version.startswith(v) for v in supported_versions):
                 return "PASS: Compatible."
             else:
