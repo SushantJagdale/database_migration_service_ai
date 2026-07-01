@@ -75,17 +75,17 @@ data "google_secret_manager_secret" "google_api_key" {
   project   = var.project_id
 }
 
-# Fetch the latest image digests to force redeployment when images are rebuilt
-data "google_container_registry_image" "backend" {
-  name    = "dms-backend"
-  project = var.project_id
-  tag     = "latest"
+# Fetch the latest image digests natively from Artifact Registry (GCR backup repository)
+data "google_artifact_registry_docker_image" "backend" {
+  location      = "us"
+  repository_id = "gcr.io"
+  image_name    = "dms-backend:latest"
 }
 
-data "google_container_registry_image" "frontend" {
-  name    = "dms-frontend"
-  project = var.project_id
-  tag     = "latest"
+data "google_artifact_registry_docker_image" "frontend" {
+  location      = "us"
+  repository_id = "gcr.io"
+  image_name    = "dms-frontend:latest"
 }
 
 # Grant the backend service account access to read secrets in Secret Manager at the Project Level
@@ -138,7 +138,7 @@ resource "google_cloud_run_v2_service" "backend" {
     }
 
     containers {
-      image = data.google_container_registry_image.backend.image_url
+      image = "gcr.io/${var.project_id}/dms-backend@${split("@", data.google_artifact_registry_docker_image.backend.name)[1]}"
       ports {
         container_port = 8080
       }
@@ -210,7 +210,7 @@ resource "google_cloud_run_v2_service" "frontend" {
     service_account = google_service_account.frontend.email
 
     containers {
-      image = data.google_container_registry_image.frontend.image_url
+      image = "gcr.io/${var.project_id}/dms-frontend@${split("@", data.google_artifact_registry_docker_image.frontend.name)[1]}"
       ports {
         container_port = 8080
       }

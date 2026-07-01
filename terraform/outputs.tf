@@ -9,11 +9,11 @@ output "frontend_url" {
 }
 
 output "frontend_image_url" {
-  value       = data.google_container_registry_image.frontend.image_url
+  value       = "gcr.io/${var.project_id}/dms-frontend@${split("@", data.google_artifact_registry_docker_image.frontend.name)[1]}"
   description = "The resolved image URL with digest of the frontend image."
 }
 
 output "backend_image_url" {
-  value       = data.google_container_registry_image.backend.image_url
+  value       = "gcr.io/${var.project_id}/dms-backend@${split("@", data.google_artifact_registry_docker_image.backend.name)[1]}"
   description = "The resolved image URL with digest of the backend image."
 }
