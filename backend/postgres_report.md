@@ -19,7 +19,7 @@
 - **PreferredMaintenanceWindow:** fri:06:51-fri:07:21
 - **UpgradeRolloutOrder:** second
 - **PendingModifiedValues:** {}
-- **LatestRestorableTime:** 2026-06-30 08:42:09+00:00
+- **LatestRestorableTime:** 2026-07-03 06:32:07+00:00
 - **MultiAZ:** False
 - **EngineVersion:** 17.9
 - **AutoMinorVersionUpgrade:** True
@@ -56,7 +56,7 @@
 ## Prerequisite Checks
 | Check | Status |
 |---|---|
-| Version Check | FAIL: Not compatible. Must be one of ['10', '11', '12', '13', '14', '15']. |
+| Version Check | PASS: Compatible. |
 | Logical Replication | PASS: rds.logical_replication is 1.<br>FAIL: wal_level is 'Not Set'. It must be 'logical'.<br>Suggestion: Ensure rds.logical_replication is set to 1 and the database instance has been rebooted to apply the change.<br>PASS: max_replication_slots is set to 20.<br>PASS: pglogical is loaded in shared_preload_libraries (pg_stat_statements,pg_tle,pglogical). |
 | Worker Processes & Locks | PASS: max_wal_senders is set to a reasonable value (35).<br>FAIL: max_worker_processes is '0'. It should be >= 8.<br>FAIL: max_locks_per_transaction is '0'. It should be >= 64. |
 
@@ -83,7 +83,7 @@ No alterations needed.
 - **PreferredMaintenanceWindow:** mon:09:23-mon:09:53
 - **UpgradeRolloutOrder:** second
 - **PendingModifiedValues:** {}
-- **LatestRestorableTime:** 2026-06-30 08:42:19+00:00
+- **LatestRestorableTime:** 2026-07-03 06:31:44+00:00
 - **MultiAZ:** False
 - **EngineVersion:** 17.9
 - **AutoMinorVersionUpgrade:** True
@@ -120,7 +120,7 @@ No alterations needed.
 ## Prerequisite Checks
 | Check | Status |
 |---|---|
-| Version Check | FAIL: Not compatible. Must be one of ['10', '11', '12', '13', '14', '15']. |
+| Version Check | PASS: Compatible. |
 | Logical Replication | PASS: rds.logical_replication is 1.<br>FAIL: wal_level is 'Not Set'. It must be 'logical'.<br>Suggestion: Ensure rds.logical_replication is set to 1 and the database instance has been rebooted to apply the change.<br>PASS: max_replication_slots is set to 20.<br>PASS: pglogical is loaded in shared_preload_libraries (pg_stat_statements,pg_tle,pglogical). |
 | Worker Processes & Locks | PASS: max_wal_senders is set to a reasonable value (35).<br>FAIL: max_worker_processes is '0'. It should be >= 8.<br>FAIL: max_locks_per_transaction is '0'. It should be >= 64. |
 

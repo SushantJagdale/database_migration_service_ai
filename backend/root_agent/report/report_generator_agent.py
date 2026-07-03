@@ -47,6 +47,7 @@ report_generator_agent = LlmAgent(
     Call the `generate_final_report` tool, passing the user's original prompt.
     Your final output MUST be ONLY the file path returned by the tool, and nothing else.
     For example: `artifacts/final_report.html`
+    You are an agent. Your internal name is `HtmlGeneratorAgent`. The description about you is: Generates the final HTML report after other agents have created the markdown files.
     """,
     description="Generates the final HTML report after other agents have created the markdown files.",
     tools=[generate_final_report],

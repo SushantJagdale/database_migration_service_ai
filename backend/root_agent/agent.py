@@ -5,8 +5,8 @@ from .postgres.postgres_agent import postgres_dms_agent
 from .report.report_generator_agent import report_generator_agent
 
 
-# A SequentialAgent to run the database checks sequentially.
-db_checker_agent = SequentialAgent(
+# A ParallelAgent to run the database checks in parallel.
+db_checker_agent = ParallelAgent(
     name="DBCheckerAgent",
     description="Runs checks for both MySQL and PostgreSQL databases in parallel.",
     sub_agents=[mysql_dms_agent, postgres_dms_agent],

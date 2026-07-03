@@ -272,7 +272,7 @@ def get_target_instance_ip(instance_id: str) -> str:
     Checks for '{instance_id}' first, then '{instance_id}-tgt'.
     Returns the PRIVATE IP if available, otherwise PRIMARY (public) IP.
     """
-    project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("PROJECT_ID")
+    project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
     
     # Try names
     names_to_try = [instance_id, f"{instance_id}-tgt"]
@@ -359,4 +359,4 @@ async def validate_database_endpoint(payload: ValidateRequest):
         raise HTTPException(status_code=500, detail=f"Unexpected validation error: {str(e)}")
 
 if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=8090)
+    uvicorn.run(app, host='0.0.0.0', port=8091)
