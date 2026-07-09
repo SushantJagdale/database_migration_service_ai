@@ -31,13 +31,15 @@ async def main(prompt: str):
         app_name="db_discovery_app", user_id="user"
     )
 
-    # Clear old reports from previous runs to ensure no stale data persists
+    # Clear old reports from backend directory to ensure no stale data persists
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
     for filename in ["mysql_report.md", "postgres_report.md"]:
-        if os.path.exists(filename):
+        full_path = os.path.join(backend_dir, filename)
+        if os.path.exists(full_path):
             try:
-                os.remove(filename)
+                os.remove(full_path)
             except Exception as io_err:
-                print(f"Could not remove old report file {filename}: {io_err}")
+                print(f"Could not remove old report file {full_path}: {io_err}")
 
     print(f"--- Running Orchestrator with Prompt: '{prompt}' ---")
 
