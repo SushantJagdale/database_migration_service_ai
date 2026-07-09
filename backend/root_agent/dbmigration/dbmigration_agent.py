@@ -28,22 +28,15 @@ def get_db_details_from_report(instance_id: str) -> Optional[dict]:
     """Parses local pre-migration markdown reports to find instance details."""
     filenames = ["mysql_report.md", "postgres_report.md"]
     
-    # Check multiple candidate directories for the report files
-    search_dirs = [
-        os.getcwd(),
-        os.path.join(os.getcwd(), "backend") if not os.getcwd().endswith("backend") else None,
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    ]
-    search_dirs = [d for d in search_dirs if d and os.path.exists(d)]
+    backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     for filename in filenames:
-        for s_dir in search_dirs:
-            full_path = os.path.join(s_dir, filename)
-            if not os.path.exists(full_path):
-                continue
-            logging.info(f"Found report file: {full_path}")
-            with open(full_path, "r") as f:
-                content = f.read()
+        full_path = os.path.join(backend_dir, filename)
+        if not os.path.exists(full_path):
+            continue
+        logging.info(f"Found report file: {full_path}")
+        with open(full_path, "r") as f:
+            content = f.read()
             
             reports = content.split("# Pre-Migration Report")
             for report in reports:

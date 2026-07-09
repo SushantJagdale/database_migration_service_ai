@@ -55,6 +55,25 @@ class DmsStatusRequest(BaseModel):
 async def read_root(request: Request):
     return templates.TemplateResponse(name="index.html", request=request)
 
+def forward_post_request(endpoint: str, json_data: dict) -> dict:
+    if not BACKEND_URL:
+        raise HTTPException(status_code=500, detail="BACKEND_URL is not configured")
+    try:
+        response = requests.post(f"{BACKEND_URL}{endpoint}", json=json_data)
+        if response.status_code >= 400:
+            try:
+                error_detail = response.json().get("detail", "Backend request failed.")
+            except Exception:
+                error_detail = response.text or "Backend request failed."
+            raise HTTPException(status_code=response.status_code, detail=error_detail)
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Failed to connect to backend: {e}")
+    except requests.exceptions.JSONDecodeError:
+        raise HTTPException(status_code=500, detail=f"Invalid JSON response from backend: {response.text}")
+
 @app.post("/configure")
 async def configure(payload: ConfigureRequest):
     aws_account_id = payload.aws_account_id
@@ -64,102 +83,29 @@ async def configure(payload: ConfigureRequest):
     if not aws_account_id or not aws_access_key_id or not aws_secret_access_key:
         raise HTTPException(status_code=400, detail="Missing AWS credentials or Account ID.")
 
-    # try:
-    #     # Format the environment variables for the update command
-    #     env_vars_str = f"AWS_ACCESS_KEY_ID={aws_access_key_id},AWS_SECRET_ACCESS_KEY={aws_secret_access_key}"
-
-    #     # Update the backend Cloud Run service with the new environment variables
-    #     update_command = [
-    #         "gcloud", "run", "services", "update", "dms-backend",
-    #         "--platform", "managed",
-    #         "--region", REGION,
-    #         "--project", PROJECT_ID,
-    #         f"--set-env-vars={env_vars_str}"
-    #     ]
-    #     update_result = subprocess.run(update_command, capture_output=True, text=True, check=True)
-    #     return {"message": "AWS credentials configured successfully.", "details": update_result.stdout}
-    # except subprocess.CalledProcessError as e:
-    #     raise HTTPException(status_code=500, detail=f"Failed to update backend service: {e.stderr}")
-    # except FileNotFoundError:
-    #     raise HTTPException(status_code=500, detail="gcloud command not found. Make sure it's installed and in your PATH.")
-    if not BACKEND_URL:
-        raise HTTPException(status_code=500, detail="BACKEND_URL is not configured")
-
-    try:
-        payload_dict = payload.model_dump()
-        logging.info(f"Forwarding to backend: {payload_dict}")
-        response = requests.post(f"{BACKEND_URL}/configure", json=payload_dict)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Failed to connect to backend: {e}")
-
+    return forward_post_request("/configure", payload.model_dump())
 
 @app.post("/discover")
 async def discover(payload: DiscoverRequest):
-    if not BACKEND_URL:
-        raise HTTPException(status_code=500, detail="BACKEND_URL is not configured")
-
     prompt = payload.prompt
-
     if not prompt:
         raise HTTPException(status_code=400, detail="Missing prompt")
-
-    try:
-        response = requests.post(f"{BACKEND_URL}/discover", json={"prompt": prompt})
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Failed to connect to backend: {e}")
-    except requests.exceptions.JSONDecodeError:
-        raise HTTPException(status_code=500, detail=f"Invalid JSON response from backend: {response.text}")
+    return forward_post_request("/discover", {"prompt": prompt})
 
 @app.post("/configuredms")
 async def configure_dms(payload: ConfigureDmsRequest):
-    if not BACKEND_URL:
-        raise HTTPException(status_code=500, detail="BACKEND_URL is not configured")
-
     prompt = payload.prompt
-
     if not prompt:
         raise HTTPException(status_code=400, detail="Missing prompt")
-
-    try:
-        response = requests.post(f"{BACKEND_URL}/configuredms", json={"prompt": prompt})
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Failed to connect to backend: {e}")
-    except requests.exceptions.JSONDecodeError:
-        raise HTTPException(status_code=500, detail=f"Invalid JSON response from backend: {response.text}")
+    return forward_post_request("/configuredms", {"prompt": prompt})
 
 @app.post("/validate")
 async def validate_proxy(payload: ValidateRequest):
-    if not BACKEND_URL:
-        raise HTTPException(status_code=500, detail="BACKEND_URL is not configured")
-
-    try:
-        response = requests.post(f"{BACKEND_URL}/validate", json=payload.model_dump())
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Failed to connect to backend: {e}")
-    except requests.exceptions.JSONDecodeError:
-        raise HTTPException(status_code=500, detail=f"Invalid JSON response from backend: {response.text}")
+    return forward_post_request("/validate", payload.model_dump())
 
 @app.post("/dms/status")
 async def dms_status_proxy(payload: DmsStatusRequest):
-    if not BACKEND_URL:
-        raise HTTPException(status_code=500, detail="BACKEND_URL is not configured")
-
-    try:
-        response = requests.post(f"{BACKEND_URL}/dms/status", json=payload.model_dump())
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Failed to connect to backend: {e}")
-    except requests.exceptions.JSONDecodeError:
-        raise HTTPException(status_code=500, detail=f"Invalid JSON response from backend: {response.text}")
+    return forward_post_request("/dms/status", payload.model_dump())
 
 if __name__ == "__main__":
     import uvicorn

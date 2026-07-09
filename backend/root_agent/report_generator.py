@@ -227,25 +227,10 @@ def generate_html_table(data, columns):
     return html
 
 def find_report_file(filename):
-    """Finds the report file in CWD, backend/, or parent directories, returning the newest if duplicates exist."""
-    search_dirs = [
-        os.getcwd(),
-        os.path.join(os.getcwd(), "backend") if not os.getcwd().endswith("backend") else None,
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), # backend
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # root
-    ]
-    search_dirs = list(set([d for d in search_dirs if d and os.path.exists(d)]))
-    
-    candidate_files = []
-    for s_dir in search_dirs:
-        full_path = os.path.join(s_dir, filename)
-        if os.path.exists(full_path):
-            candidate_files.append(full_path)
-            
-    if not candidate_files:
-        return filename
-        
-    return max(candidate_files, key=os.path.getmtime)
+    """Finds the report file directly in the backend directory."""
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    full_path = os.path.join(backend_dir, filename)
+    return full_path
 
 def main():
     """Generates the final HTML report."""

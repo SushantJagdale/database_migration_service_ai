@@ -47,16 +47,29 @@ def load_aws_credentials():
         return None
 
 def list_all_rds_dbs(region_name=None):
-    """Lists all RDS databases in the account across regions (or a specific region if provided) and saves them to a file."""
+    """Lists all RDS databases in the account across regions (or filtered by a region pattern if provided) and saves them to a file."""
     try:
+        ec2_client = get_aws_client('ec2', region_name='us-east-1')
+        if not ec2_client:
+            return []
+        all_regions = [region['RegionName'] for region in ec2_client.describe_regions()['Regions']]
+
         if region_name:
-            all_regions = [region_name]
-            print(f"Scanning for RDS instances in specific region: {region_name}...")
+            import fnmatch
+            # If region_name contains wildcards or if we want to support flexible pattern matching
+            if "*" not in region_name and "?" not in region_name:
+                # If they passed a partial pattern like "us", turn it into "us-*"
+                pattern = f"{region_name}*" if not region_name.endswith("-") else f"{region_name}*"
+            else:
+                pattern = region_name
+            
+            matched_regions = [r for r in all_regions if fnmatch.fnmatch(r.lower(), pattern.lower())]
+            if matched_regions:
+                all_regions = matched_regions
+                print(f"Region filter pattern '{pattern}' matched regions: {all_regions}")
+            else:
+                print(f"Warning: Region filter pattern '{pattern}' did not match any available regions. Scanning all regions.")
         else:
-            ec2_client = get_aws_client('ec2', region_name='us-east-1')
-            if not ec2_client:
-                return []
-            all_regions = [region['RegionName'] for region in ec2_client.describe_regions()['Regions']]
             print(f"Scanning for RDS instances across all available AWS regions...")
 
         db_list = []
@@ -85,7 +98,10 @@ def list_all_rds_dbs(region_name=None):
                     print(f"An unexpected error occurred in region {r_name}, skipping: {region_error}")
                     continue
 
-        with open('db_list.txt', 'w') as f:
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        db_list_path = os.path.join(backend_dir, "db_list.txt")
+
+        with open(db_list_path, 'w') as f:
             json.dump(db_list, f, indent=4)
             
         return db_list

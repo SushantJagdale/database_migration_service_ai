@@ -71,11 +71,49 @@ class ConfigureRequest(BaseModel):
 async def configure_aws(payload: ConfigureRequest):
     """
     This endpoint receives AWS credentials and account ID, and sets them as environment variables.
+    It verifies the credentials against AWS STS before configuring.
     """
     try:
         if not all([payload.aws_account_id, payload.aws_access_key_id, payload.aws_secret_access_key]):
             logging.error("Missing AWS credentials or Account ID in request body.")
             raise HTTPException(status_code=400, detail="Missing AWS credentials or Account ID.")
+
+        import boto3
+        from botocore.exceptions import ClientError
+
+        # Validate credentials by querying STS
+        try:
+            sts_client = boto3.client(
+                'sts',
+                aws_access_key_id=payload.aws_access_key_id,
+                aws_secret_access_key=payload.aws_secret_access_key
+            )
+            caller_identity = sts_client.get_caller_identity()
+            aws_arn_account_id = caller_identity.get("Account")
+            
+            # Verify that the account ID matches the payload
+            if aws_arn_account_id != payload.aws_account_id:
+                logging.error(f"AWS Account ID mismatch: entered {payload.aws_account_id}, but credentials belong to {aws_arn_account_id}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"AWS Account ID mismatch: credentials belong to account {aws_arn_account_id}, not {payload.aws_account_id}."
+                )
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
+            error_message = e.response.get("Error", {}).get("Message", str(e))
+            logging.error(f"AWS credentials validation failed: {error_code} - {error_message}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"AWS credentials validation failed: {error_message} ({error_code})"
+            )
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                raise e
+            logging.error(f"Failed to communicate with AWS to validate credentials: {str(e)}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"AWS credentials validation failed: Could not connect to AWS STS service. Error: {str(e)}"
+            )
 
         os.environ['AWS_ACCOUNT_ID'] = payload.aws_account_id
         os.environ['AWS_ACCESS_KEY_ID'] = payload.aws_access_key_id
@@ -86,6 +124,8 @@ async def configure_aws(payload: ConfigureRequest):
         
         logging.info("AWS credentials and Account ID configured successfully.")
         return {"message": "AWS credentials and Account ID configured successfully."}
+    except HTTPException as http_err:
+        raise http_err
     except Exception as e:
         logging.exception("An error occurred during AWS configuration.")
         raise HTTPException(status_code=500, detail=str(e))
@@ -109,22 +149,16 @@ async def discover_databases(request: Request):
     if not prompt:
         raise HTTPException(status_code=400, detail="Missing prompt")
 
-    # Clear old reports from both workspace root and backend directory to ensure no stale data persists
-    search_dirs = [
-        os.getcwd(),
-        os.path.join(os.getcwd(), "backend") if not os.getcwd().endswith("backend") else None,
-    ]
-    search_dirs = list(set([d for d in search_dirs if d and os.path.exists(d)]))
-    
-    for filename in ["mysql_report.md", "postgres_report.md"]:
-        for s_dir in search_dirs:
-            full_path = os.path.join(s_dir, filename)
-            if os.path.exists(full_path):
-                try:
-                    os.remove(full_path)
-                    logging.info(f"Deleted old report file: {full_path}")
-                except Exception as io_err:
-                    logging.warning(f"Could not remove old report file {full_path}: {io_err}")
+    # Clear old reports from backend directory to ensure no stale data persists
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    for filename in ["mysql_report.md", "postgres_report.md", "db_list.txt"]:
+        full_path = os.path.join(backend_dir, filename)
+        if os.path.exists(full_path):
+            try:
+                os.remove(full_path)
+                logging.info(f"Deleted old report file: {full_path}")
+            except Exception as io_err:
+                logging.warning(f"Could not remove old report file {full_path}: {io_err}")
 
     try:
         # Run the agent asynchronously
