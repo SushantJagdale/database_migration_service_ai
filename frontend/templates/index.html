@@ -24,17 +24,18 @@
         }
 
         .header {
-            background: linear-gradient(to right, #e0e7ff, #c7d2fe); /* Soft blue gradient */
-            padding: 1rem 0;
-            border: 2px solid #374151; /* Dark border */
+            background: linear-gradient(to right, #4f46e5, #3b82f6); /* Premium indigo-blue gradient */
+            padding: 1.5rem 0;
+            border-bottom: 2px solid #4338ca;
             margin-bottom: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
 
-        .header h1 {
+        .header h4 {
             font-weight: 700;
-            color: #373f51; /* Darker text for contrast */
+            color: #ffffff !important;
+            margin: 0;
         }
 
         .card {
@@ -165,6 +166,75 @@
             font-size: .875rem;
             border-radius: .2rem;
         }
+
+        /* Provider Cards Styling */
+        .provider-card {
+            background-color: #1e293b; /* Dark navy/slate matching footer */
+            border: 2px solid #334155;
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            color: white;
+            transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+            min-height: 150px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .provider-card:hover {
+            transform: translateY(-4px);
+            border-color: #3b82f6;
+            box-shadow: 0 10px 15px rgba(0,0,0,0.2);
+        }
+
+        .provider-card.disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
+            pointer-events: none;
+            box-shadow: none;
+            transform: none !important;
+        }
+
+        .provider-card.active {
+            border-color: #3b82f6; /* Blue highlight */
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.4);
+            background-color: #0f172a; /* Slightly darker for active */
+        }
+
+        .provider-card h5 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-top: 0.5rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .provider-logo {
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .provider-icon {
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Footer styling */
+        .footer {
+            background: linear-gradient(to right, #4f46e5, #3b82f6); /* Premium indigo-blue gradient */
+            color: white;
+            padding: 1.5rem 0;
+            margin-top: 3rem;
+            border-top: 2px solid #4338ca;
+            border-radius: 8px 8px 0 0;
+        }
     </style>
 </head>
 <body>
@@ -177,8 +247,74 @@
 
     <main>
         <div class="container">
-            <div class="row">
+            <!-- Welcome Message -->
+            <div class="row mb-4">
                 <div class="col-12">
+                    <div class="card" style="border: 2px solid #273a4b; border-radius: 12px; background: linear-gradient(to right, #4c9ca6, #273a4b); box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                        <div class="card-body p-4 text-center text-white">
+                            <h4 class="mb-3" style="font-weight: 700; font-size: 1.25rem; letter-spacing: -0.5px;">Welcome to the Database Migration Hub!</h4>
+                            <p class="mb-0 mx-auto" style="font-size: 0.95rem; line-height: 1.6; max-width: 950px; font-weight: 400; opacity: 0.95;">
+                                This platform streamlines your cloud modernization journey by automatically discovering databases across various hyperscalers and orchestrating seamless migrations to GCP Cloud SQL. Select your source environment below to initiate your discovery and begin the migration assessment.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Provider Widgets Row -->
+            <div class="row mb-4">
+                <div class="col-md-4">
+                    <div class="provider-card active" id="aws-card">
+                        <div class="provider-logo mb-2 d-flex flex-column align-items-center">
+                            <span style="font-size: 1.8rem; font-weight: 800; color: white; line-height: 1; letter-spacing: -1px;">aws</span>
+                            <svg width="40" height="15" viewBox="0 0 40 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M2 2C12 11 28 11 38 2" stroke="#ff9900" stroke-width="3" stroke-linecap="round"/>
+                                <path d="M34 2L38 2L37 6" stroke="#ff9900" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <h5>Amazon Web Services</h5>
+                        <p class="text-muted small mb-2" style="color: #cbd5e1 !important;">RDS Database Discovery and Migration to Google Cloud</p>
+                        <span style="font-size: 0.8rem; font-weight: 700; color: #60a5fa; text-transform: uppercase; letter-spacing: 0.5px;">In Progress</span>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="provider-card" onclick="alert('Microsoft Azure migration support is coming soon!')">
+                        <div class="provider-logo mb-2">
+                            <svg width="36" height="36" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M11.8 1.8L6.2 9.4L1 14.2H6.6L11.8 1.8Z" fill="#0078D4"/>
+                                <path d="M17 14.2L11.8 1.8L9.4 6.2L13.8 14.2H17Z" fill="#50E6FF"/>
+                                <path d="M1.2 14.2L6.2 9.4L9.4 6.2L6.6 14.2H1.2Z" fill="#00BCF2"/>
+                            </svg>
+                        </div>
+                        <h5>Microsoft Azure</h5>
+                        <p class="text-muted small mb-2" style="color: #cbd5e1 !important;">Azure Database Discovery and Migration to Google Cloud</p>
+                        <span style="font-size: 0.8rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Coming Soon</span>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="provider-card" onclick="alert('IBM Cloud migration support is coming soon!')">
+                        <div class="provider-logo mb-2">
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/5/51/IBM_logo.svg" alt="IBM" style="height: 24px; filter: brightness(0) invert(1);" />
+                        </div>
+                        <h5>IBM Cloud</h5>
+                        <p class="text-muted small mb-2" style="color: #cbd5e1 !important;">IBM Cloud Database Discovery and Migration to Google Cloud</p>
+                        <span style="font-size: 0.8rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Coming Soon</span>
+                    </div>
+                </div>
+            </div>
+
+    <!-- Modal for AWS Migration -->
+    <div class="modal fade" id="awsMigrationModal" tabindex="-1" role="dialog" aria-labelledby="awsMigrationModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content" style="border-radius: 12px; overflow: hidden; border: none; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.15);">
+                <div class="modal-header" style="background: linear-gradient(to right, #4f46e5, #3b82f6); color: white; padding: 1.25rem 1.5rem;">
+                    <h5 class="modal-title" id="awsMigrationModalLabel" style="font-weight: 700; font-size: 1.25rem;">AWS RDS Database Migration to Google Cloud SQL</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close" style="opacity: 0.8; outline: none;">
+                        <span aria-hidden="true" style="font-size: 1.5rem;">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" style="background-color: #f3f4f6; max-height: 80vh; overflow-y: auto; padding: 1.5rem;">
+                    
                     <div class="card">
                         <div class="card-header card-header-sm">Configure AWS Credentials</div>
                         <div class="card-body card-body-sm">
@@ -267,13 +403,8 @@
                             </form>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
-        <div class="container-fluid" style="max-width: 1600px;">
-            <div class="row">
-                <div class="col-12">
-                    <div class="card">
+
+                    <div class="card mb-0">
                         <div class="card-header card-header-sm">View Report</div>
                         <div class="card-body card-body-sm">
                             <div id="output">
@@ -281,10 +412,19 @@
                             </div>
                         </div>
                     </div>
+
                 </div>
             </div>
         </div>
+    </div>
     </main>
+
+    <footer class="footer text-center">
+        <div class="container">
+            <button class="btn btn-light btn-sm-custom mr-3" style="color: #4f46e5; font-weight: 600; border: 1px solid #c7d2fe;" onclick="alert('How to Use: Configure credentials, discover source databases, then configure, start, check and promote your target database migration.')">How to Use This Tool</button>
+            <button class="btn btn-light btn-sm-custom" style="color: #4f46e5; font-weight: 600; border: 1px solid #c7d2fe;" onclick="alert('Demo video playback coming soon!')">Watch a Demo Video</button>
+        </div>
+    </footer>
 
     <script>
         const configureForm = document.getElementById('configure-form');
@@ -298,6 +438,11 @@
         const validateDmsBtn = document.getElementById('validate-dms-btn');
         const dmsInstanceSelect = document.getElementById('dms_instance_id');
         const dmsRegionSelect = document.getElementById('dms_region');
+
+        // Toggle AWS Migration Modal
+        document.getElementById('aws-card').addEventListener('click', () => {
+            $('#awsMigrationModal').modal('show');
+        });
 
         configureForm.addEventListener('submit', async (event) => {
             event.preventDefault();
@@ -739,5 +884,8 @@
             }
         });
     </script>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
 </body>
 </html>
