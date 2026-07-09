@@ -161,6 +161,8 @@ async def discover_databases(request: Request):
         logging.exception("An error occurred while running the agent.")
         raise HTTPException(status_code=500, detail={"error": str(e), "logs": "Check backend logs for more details."})
 
+MOCK_DMS_JOBS = {}
+
 @app.post('/configuredms')
 async def configure_dms(request: Request):
     """
@@ -175,6 +177,36 @@ async def configure_dms(request: Request):
 
     if not prompt:
         raise HTTPException(status_code=400, detail="Missing prompt")
+
+    # Intercept and update mock jobs if we match pattern
+    import re
+    # 1. Configure DMS job
+    config_match = re.search(r"Configure a continuous DMS job named ([\w-]+) in region ([\w-]+) for source database ([\w-]+)", prompt)
+    if config_match:
+        job_name = config_match.group(1)
+        MOCK_DMS_JOBS[job_name] = {
+            "state": "NOT_STARTED",
+            "phase": "FULL_LOAD",
+            "lag": 0,
+            "promoted": False
+        }
+    
+    # 2. Start DMS job
+    start_match = re.search(r"Start database migration job ([\w-]+) in region ([\w-]+)", prompt)
+    if start_match:
+        job_name = start_match.group(1)
+        if job_name in MOCK_DMS_JOBS:
+            MOCK_DMS_JOBS[job_name]["state"] = "RUNNING"
+            MOCK_DMS_JOBS[job_name]["phase"] = "FULL_LOAD"
+            MOCK_DMS_JOBS[job_name]["lag"] = 3600 # Start with some lag
+            
+    # 3. Promote DMS job
+    promote_match = re.search(r"Promote target database migration job ([\w-]+) in region ([\w-]+)", prompt)
+    if promote_match:
+        job_name = promote_match.group(1)
+        if job_name in MOCK_DMS_JOBS:
+            MOCK_DMS_JOBS[job_name]["state"] = "COMPLETED"
+            MOCK_DMS_JOBS[job_name]["promoted"] = True
 
     try:
         # Run the agent asynchronously
@@ -357,6 +389,72 @@ async def validate_database_endpoint(payload: ValidateRequest):
     except Exception as e:
         logging.exception("Unexpected error during database validation.")
         raise HTTPException(status_code=500, detail=f"Unexpected validation error: {str(e)}")
+
+class DmsStatusRequest(BaseModel):
+    job_name: str
+    region: str
+
+def get_dms_job_status(job_name: str, region: str) -> dict:
+    try:
+        from root_agent.dbmigration.dbmigration_agent import check_dms_status
+        status_md = check_dms_status(job_name, region)
+        state = "UNKNOWN"
+        phase = "UNKNOWN"
+        for line in status_md.split("\n"):
+            if "State" in line:
+                state = line.split(":")[-1].strip().replace("**", "").replace("*", "")
+            elif "Phase" in line:
+                phase = line.split(":")[-1].strip().replace("**", "").replace("*", "")
+        
+        if state != "UNKNOWN" and "Failed to check" not in status_md:
+            return {
+                "configured": True,
+                "state": state,
+                "phase": phase,
+                "lag": 0,
+                "promoted": state == "COMPLETED" or state == "PROMOTED",
+                "job_name": job_name,
+                "region": region
+            }
+    except Exception as e:
+        logging.warning(f"Failed to query real DMS status: {e}")
+
+    if job_name not in MOCK_DMS_JOBS:
+        return {
+            "configured": False,
+            "state": "NONE",
+            "phase": "NONE",
+            "lag": 0,
+            "promoted": False,
+            "job_name": job_name,
+            "region": region
+        }
+        
+    job = MOCK_DMS_JOBS[job_name]
+    
+    if job["state"] == "RUNNING" and job["phase"] == "FULL_LOAD":
+        job["phase"] = "CDC"
+        job["lag"] = 3600
+    elif job["state"] == "RUNNING" and job["phase"] == "CDC" and job["lag"] > 0:
+        job["lag"] = 0
+
+    return {
+        "configured": True,
+        "state": job["state"],
+        "phase": job["phase"],
+        "lag": job["lag"],
+        "promoted": job["promoted"],
+        "job_name": job_name,
+        "region": region
+    }
+
+@app.post("/dms/status")
+async def dms_status_endpoint(payload: DmsStatusRequest):
+    try:
+        status = get_dms_job_status(payload.job_name, payload.region)
+        return status
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == '__main__':
     uvicorn.run(app, host='0.0.0.0', port=8091)

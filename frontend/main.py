@@ -9,7 +9,8 @@ import requests
 from pydantic import BaseModel
 
 app = FastAPI()
-templates = Jinja2Templates(directory="templates")
+templates_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
+templates = Jinja2Templates(directory=templates_dir)
 
 # Helper to load .env file manually
 def load_env_file(filepath=".env"):
@@ -23,12 +24,12 @@ def load_env_file(filepath=".env"):
                     os.environ[key.strip()] = val
 
 # Load local .env if present (fallback for local development)
-load_env_file()
+load_env_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 # The URL of the backend service will be injected as an environment variable
 BACKEND_URL = os.environ.get("BACKEND_URL")
 PROJECT_ID = os.environ.get("PROJECT_ID", "migration-demo-429608")
-REGION = os.environ.get("REGION", "us-central1")
+REGION = os.environ.get("REGION", "asia-south1")
 
 class ConfigureRequest(BaseModel):
     aws_account_id: str
@@ -44,6 +45,11 @@ class ConfigureDmsRequest(BaseModel):
 class ValidateRequest(BaseModel):
     instance_id: str
     engine: str
+
+class DmsStatusRequest(BaseModel):
+    job_name: str
+    region: str
+
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -141,6 +147,20 @@ async def validate_proxy(payload: ValidateRequest):
     except requests.exceptions.JSONDecodeError:
         raise HTTPException(status_code=500, detail=f"Invalid JSON response from backend: {response.text}")
 
+@app.post("/dms/status")
+async def dms_status_proxy(payload: DmsStatusRequest):
+    if not BACKEND_URL:
+        raise HTTPException(status_code=500, detail="BACKEND_URL is not configured")
+
+    try:
+        response = requests.post(f"{BACKEND_URL}/dms/status", json=payload.model_dump())
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Failed to connect to backend: {e}")
+    except requests.exceptions.JSONDecodeError:
+        raise HTTPException(status_code=500, detail=f"Invalid JSON response from backend: {response.text}")
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8082)
+    uvicorn.run(app, host="0.0.0.0", port=8081)

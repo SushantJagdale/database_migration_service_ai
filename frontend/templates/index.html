@@ -242,23 +242,23 @@
                                     </div>
                                 </div>
                                 <div class="mt-3">
-                                    <button type="button" class="btn btn-primary btn-sm-custom mr-2 mb-2" id="configure-dms-btn">
+                                    <button type="button" class="btn btn-primary btn-sm-custom mr-2 mb-2" id="configure-dms-btn" disabled>
                                         <span class="spinner" id="configure-dms-spinner"></span>
                                         <span>Configure DMS Job</span>
                                     </button>
-                                    <button type="button" class="btn btn-info btn-sm-custom mr-2 mb-2" id="start-dms-btn">
+                                    <button type="button" class="btn btn-info btn-sm-custom mr-2 mb-2" id="start-dms-btn" disabled>
                                         <span class="spinner" id="start-dms-spinner"></span>
                                         <span>Start DMS Job</span>
                                     </button>
-                                    <button type="button" class="btn btn-secondary btn-sm-custom mr-2 mb-2" id="status-dms-btn">
+                                    <button type="button" class="btn btn-secondary btn-sm-custom mr-2 mb-2" id="status-dms-btn" disabled>
                                         <span class="spinner" id="status-dms-spinner"></span>
                                         <span>Check DMS Status</span>
                                     </button>
-                                    <button type="button" class="btn btn-danger btn-sm-custom mr-2 mb-2" id="promote-dms-btn">
+                                    <button type="button" class="btn btn-danger btn-sm-custom mr-2 mb-2" id="promote-dms-btn" disabled>
                                         <span class="spinner" id="promote-dms-spinner"></span>
                                         <span>Promote Database</span>
                                     </button>
-                                    <button type="button" class="btn btn-success btn-sm-custom mb-2" id="validate-dms-btn">
+                                    <button type="button" class="btn btn-success btn-sm-custom mb-2" id="validate-dms-btn" disabled>
                                         <span class="spinner" id="validate-dms-spinner"></span>
                                         <span>Validate Database</span>
                                     </button>
@@ -289,6 +289,15 @@
     <script>
         const configureForm = document.getElementById('configure-form');
         const discoverBtn = document.getElementById('discover-btn');
+
+        // DMS management elements
+        const configureDmsBtn = document.getElementById('configure-dms-btn');
+        const startDmsBtn = document.getElementById('start-dms-btn');
+        const statusDmsBtn = document.getElementById('status-dms-btn');
+        const promoteDmsBtn = document.getElementById('promote-dms-btn');
+        const validateDmsBtn = document.getElementById('validate-dms-btn');
+        const dmsInstanceSelect = document.getElementById('dms_instance_id');
+        const dmsRegionSelect = document.getElementById('dms_region');
 
         configureForm.addEventListener('submit', async (event) => {
             event.preventDefault();
@@ -371,11 +380,8 @@
                         discoverResult.innerHTML = `<div class="alert alert-success">Report generated successfully in ${minutes} minutes and ${seconds} seconds.</div>`;
 
                         // Populate migration dropdowns dynamically
-                        const instanceSelect = document.getElementById('dms_instance_id');
-                        const regionSelect = document.getElementById('dms_region');
-                        
-                        instanceSelect.innerHTML = '<option value="">Select a database</option>';
-                        regionSelect.innerHTML = '<option value="">Select a region</option>';
+                        dmsInstanceSelect.innerHTML = '<option value="">Select a database</option>';
+                        dmsRegionSelect.innerHTML = '<option value="">Select a region</option>';
                         
                         const instances = data.instances || [];
                         const uniqueGcpRegions = new Set();
@@ -404,7 +410,7 @@
                             const gcpReg = awsToGcpRegionMap[inst.region] || 'us-central1';
                             opt.setAttribute('data-gcp-region', gcpReg);
                             opt.setAttribute('data-engine', inst.engine);
-                            instanceSelect.appendChild(opt);
+                            dmsInstanceSelect.appendChild(opt);
                             
                             uniqueGcpRegions.add(gcpReg);
                         });
@@ -413,16 +419,24 @@
                             const opt = document.createElement('option');
                             opt.value = gcpReg;
                             opt.textContent = gcpReg;
-                            regionSelect.appendChild(opt);
+                            dmsRegionSelect.appendChild(opt);
                         });
                         
-                        instanceSelect.addEventListener('change', () => {
-                            const selectedOption = instanceSelect.options[instanceSelect.selectedIndex];
-                            if (selectedOption) {
+                        dmsInstanceSelect.addEventListener('change', () => {
+                            const selectedOption = dmsInstanceSelect.options[dmsInstanceSelect.selectedIndex];
+                            if (selectedOption && selectedOption.value) {
                                 const gcpRegion = selectedOption.getAttribute('data-gcp-region');
                                 if (gcpRegion) {
-                                    regionSelect.value = gcpRegion;
+                                    dmsRegionSelect.value = gcpRegion;
                                 }
+                                configureDmsBtn.disabled = false;
+                            } else {
+                                configureDmsBtn.disabled = true;
+                                startDmsBtn.disabled = true;
+                                statusDmsBtn.disabled = true;
+                                promoteDmsBtn.disabled = true;
+                                validateDmsBtn.disabled = true;
+                                stopDmsPolling();
                             }
                         });
                     } else {
@@ -443,6 +457,102 @@
                 buttonText.textContent = 'Discover Databases';
             }
         });
+
+        // --- DMS Button State & Polling Helpers ---
+        let dmsPollInterval = null;
+
+        function updateDmsButtonsState(status) {
+            if (!status.configured) {
+                configureDmsBtn.disabled = !dmsInstanceSelect.value;
+                startDmsBtn.disabled = true;
+                statusDmsBtn.disabled = true;
+                promoteDmsBtn.disabled = true;
+                validateDmsBtn.disabled = true;
+                return;
+            }
+            
+            configureDmsBtn.disabled = false;
+            startDmsBtn.disabled = false;
+            statusDmsBtn.disabled = false;
+            validateDmsBtn.disabled = false;
+            
+            if (status.state === 'RUNNING' && status.phase === 'CDC' && status.lag === 0) {
+                promoteDmsBtn.disabled = false;
+            } else {
+                promoteDmsBtn.disabled = true;
+            }
+            
+            if (status.promoted || status.state === 'COMPLETED') {
+                configureDmsBtn.disabled = true;
+                startDmsBtn.disabled = true;
+                statusDmsBtn.disabled = true;
+                promoteDmsBtn.disabled = true;
+                validateDmsBtn.disabled = true;
+            }
+        }
+
+        function startDmsPolling(jobName, region) {
+            if (dmsPollInterval) clearInterval(dmsPollInterval);
+            checkJobStatusAndUpdate(jobName, region);
+            dmsPollInterval = setInterval(() => {
+                checkJobStatusAndUpdate(jobName, region);
+            }, 5 * 60 * 1000); // Poll every 5 minutes
+        }
+
+        function stopDmsPolling() {
+            if (dmsPollInterval) {
+                clearInterval(dmsPollInterval);
+                dmsPollInterval = null;
+            }
+        }
+
+        async function checkJobStatusAndUpdate(jobName, region) {
+            try {
+                const response = await fetch('/dms/status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ job_name: jobName, region: region })
+                });
+                if (response.ok) {
+                    const status = await response.json();
+                    updateDmsButtonsState(status);
+
+                    const resultDiv = document.getElementById('dms-result');
+                    let adviceHtml = '';
+                    if (status.state === 'RUNNING' && status.phase === 'CDC' && status.lag === 0) {
+                        adviceHtml = '<div class="alert alert-success mt-2"><strong>Status Advice:</strong> The database migration job is in CDC status and replication lag is 0. The target database is ready for Promotion!</div>';
+                    } else if (status.state === 'RUNNING') {
+                        adviceHtml = `<div class="alert alert-warning mt-2"><strong>Status Advice:</strong> The migration job is running (Phase: ${status.phase}, Lag: ${status.lag}s). Wait for the phase to reach CDC and lag to become 0 before promoting.</div>`;
+                    } else if (status.state === 'COMPLETED' || status.promoted) {
+                        adviceHtml = '<div class="alert alert-success mt-2"><strong>Status Advice:</strong> The database has been promoted successfully. Migration complete!</div>';
+                    } else if (status.state === 'NOT_STARTED') {
+                        adviceHtml = '<div class="alert alert-info mt-2"><strong>Status Advice:</strong> Job has been configured. Click "Start DMS Job" to begin replication.</div>';
+                    } else {
+                        adviceHtml = `<div class="alert alert-secondary mt-2"><strong>Status Advice:</strong> Migration job status is currently: ${status.state}.</div>`;
+                    }
+                    
+                    // If resultDiv has content, append or wrap advice
+                    if (resultDiv.innerHTML) {
+                        // Check if an existing advice block is there, if so, replace it, otherwise append.
+                        const adviceMatch = resultDiv.innerHTML.indexOf('Status Advice:');
+                        if (adviceMatch !== -1) {
+                            // Clear and reset advice
+                            resultDiv.innerHTML = resultDiv.innerHTML.split('<div class="alert alert-')[0] + adviceHtml;
+                        } else {
+                            resultDiv.innerHTML += adviceHtml;
+                        }
+                    } else {
+                        resultDiv.innerHTML = adviceHtml;
+                    }
+
+                    if (status.promoted || status.state === 'COMPLETED') {
+                        stopDmsPolling();
+                    }
+                }
+            } catch (error) {
+                console.error("Error polling DMS status:", error);
+            }
+        }
 
         // --- GCP DMS Migration Event Listeners ---
         async function callDmsAgent(prompt, buttonId, spinnerId) {
@@ -466,22 +576,25 @@
                     let output = data.output;
                     const formattedOutput = output.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
                     resultDiv.innerHTML = `<div class="alert alert-success">${formattedOutput}</div>`;
+                    return true;
                 } else {
                     let errDetail = data.detail?.error || data.detail || 'Request failed';
                     if (typeof errDetail === 'object') {
                         errDetail = JSON.stringify(errDetail);
                     }
                     resultDiv.innerHTML = `<div class="alert alert-danger">Error: ${errDetail}</div>`;
+                    return false;
                 }
             } catch (error) {
                 resultDiv.innerHTML = `<div class="alert alert-danger">An unexpected error occurred: ${error}</div>`;
+                return false;
             } finally {
                 btn.disabled = false;
                 spinner.style.display = 'none';
             }
         }
 
-        document.getElementById('configure-dms-btn').addEventListener('click', () => {
+        document.getElementById('configure-dms-btn').addEventListener('click', async () => {
             const jobName = document.getElementById('dms_job_name').value;
             const region = document.getElementById('dms_region').value;
             const instanceId = document.getElementById('dms_instance_id').value;
@@ -492,10 +605,19 @@
             }
 
             const prompt = `Configure a continuous DMS job named ${jobName} in region ${region} for source database ${instanceId}.`;
-            callDmsAgent(prompt, 'configure-dms-btn', 'configure-dms-spinner');
+            const success = await callDmsAgent(prompt, 'configure-dms-btn', 'configure-dms-spinner');
+            if (success) {
+                updateDmsButtonsState({
+                    configured: true,
+                    state: 'NOT_STARTED',
+                    phase: 'FULL_LOAD',
+                    lag: 0,
+                    promoted: false
+                });
+            }
         });
 
-        document.getElementById('start-dms-btn').addEventListener('click', () => {
+        document.getElementById('start-dms-btn').addEventListener('click', async () => {
             const jobName = document.getElementById('dms_job_name').value;
             const region = document.getElementById('dms_region').value;
             if (!jobName) {
@@ -503,10 +625,13 @@
                 return;
             }
             const prompt = `Start database migration job ${jobName} in region ${region}.`;
-            callDmsAgent(prompt, 'start-dms-btn', 'start-dms-spinner');
+            const success = await callDmsAgent(prompt, 'start-dms-btn', 'start-dms-spinner');
+            if (success) {
+                startDmsPolling(jobName, region);
+            }
         });
 
-        document.getElementById('status-dms-btn').addEventListener('click', () => {
+        document.getElementById('status-dms-btn').addEventListener('click', async () => {
             const jobName = document.getElementById('dms_job_name').value;
             const region = document.getElementById('dms_region').value;
             if (!jobName) {
@@ -514,10 +639,11 @@
                 return;
             }
             const prompt = `Check status of database migration job ${jobName} in region ${region}.`;
-            callDmsAgent(prompt, 'status-dms-btn', 'status-dms-spinner');
+            await callDmsAgent(prompt, 'status-dms-btn', 'status-dms-spinner');
+            checkJobStatusAndUpdate(jobName, region);
         });
 
-        document.getElementById('promote-dms-btn').addEventListener('click', () => {
+        document.getElementById('promote-dms-btn').addEventListener('click', async () => {
             const jobName = document.getElementById('dms_job_name').value;
             const region = document.getElementById('dms_region').value;
             if (!jobName) {
@@ -525,7 +651,17 @@
                 return;
             }
             const prompt = `Promote target database migration job ${jobName} in region ${region}.`;
-            callDmsAgent(prompt, 'promote-dms-btn', 'promote-dms-spinner');
+            const success = await callDmsAgent(prompt, 'promote-dms-btn', 'promote-dms-spinner');
+            if (success) {
+                stopDmsPolling();
+                updateDmsButtonsState({
+                    configured: true,
+                    state: 'COMPLETED',
+                    phase: 'CDC',
+                    lag: 0,
+                    promoted: true
+                });
+            }
         });
 
         document.getElementById('validate-dms-btn').addEventListener('click', async () => {
