@@ -305,6 +305,39 @@
         .step-line.active {
             background-color: var(--primary-color);
         }
+
+        .how-to-nav-item {
+            color: #94a3b8 !important;
+        }
+        .how-to-nav-item.active {
+            color: #38bdf8 !important;
+            background-color: #1e293b !important;
+            border-left-color: #0ea5e9 !important;
+            font-weight: 600 !important;
+        }
+        .how-to-nav-item:hover:not(.active) {
+            background-color: #1e293b;
+            color: #f8fafc !important;
+        }
+
+        /* Custom Scrollbar for Modal Panels */
+        #how-to-use-tabContent::-webkit-scrollbar,
+        .modal-body div::-webkit-scrollbar {
+            width: 6px;
+        }
+        #how-to-use-tabContent::-webkit-scrollbar-track,
+        .modal-body div::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        #how-to-use-tabContent::-webkit-scrollbar-thumb,
+        .modal-body div::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+        #how-to-use-tabContent::-webkit-scrollbar-thumb:hover,
+        .modal-body div::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
     </style>
 </head>
 <body>
@@ -532,10 +565,118 @@
 
     <footer class="footer text-center">
         <div class="container">
-            <button class="btn btn-light btn-sm-custom mr-3" style="color: #4f46e5; font-weight: 600; border: 1px solid #c7d2fe;" onclick="alert('How to Use: Configure credentials, discover source databases, then configure, start, check and promote your target database migration.')">How to Use This Tool</button>
+            <button class="btn btn-light btn-sm-custom mr-3" style="color: #4f46e5; font-weight: 600; border: 1px solid #c7d2fe;" data-toggle="modal" data-target="#howToUseModal">How to Use This Tool</button>
             <button class="btn btn-light btn-sm-custom" style="color: #4f46e5; font-weight: 600; border: 1px solid #c7d2fe;" onclick="alert('Demo video playback coming soon!')">Watch a Demo Video</button>
         </div>
     </footer>
+
+    <!-- How to Use Modal -->
+    <div class="modal fade" id="howToUseModal" tabindex="-1" role="dialog" aria-labelledby="howToUseModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+            <div class="modal-content" style="border-radius: 12px; overflow: hidden; border: none; box-shadow: 0 10px 30px rgba(0,0,0,0.5); background-color: #1e293b;">
+                <div class="modal-header text-white" style="background: linear-gradient(135deg, #090d16, #0f172a); border-bottom: 1px solid #334155; padding: 1rem 1.5rem;">
+                    <h5 class="modal-title" id="howToUseModalLabel" style="font-weight: 600; font-size: 1.15rem; color: #f8fafc;">
+                        <i class="fas fa-info-circle mr-2 text-info"></i> How to Use the Database Migration Hub
+                    </h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close" style="opacity: 0.8; outline: none; color: #f8fafc;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body p-0 d-flex" style="height: 400px; background: #1e293b;">
+                    <!-- Left Sidebar Navigation -->
+                    <div class="d-flex flex-column" style="width: 250px; background: #0f172a; border-right: 1px solid #334155; padding: 1rem 0; overflow-y: auto;">
+                        <div class="nav flex-column nav-pills" id="how-to-use-tabs">
+                            <a class="nav-link active how-to-nav-item" href="javascript:void(0)" onclick="scrollToStep(1)" style="border-radius: 0; padding: 0.75rem 1.5rem; font-weight: 500; border-left: 4px solid transparent;">
+                                1. AWS Credentials
+                            </a>
+                            <a class="nav-link how-to-nav-item" href="javascript:void(0)" onclick="scrollToStep(2)" style="border-radius: 0; padding: 0.75rem 1.5rem; font-weight: 500; border-left: 4px solid transparent;">
+                                2. Database Discovery
+                            </a>
+                            <a class="nav-link how-to-nav-item" href="javascript:void(0)" onclick="scrollToStep(3)" style="border-radius: 0; padding: 0.75rem 1.5rem; font-weight: 500; border-left: 4px solid transparent;">
+                                3. Pre-Migration Report
+                            </a>
+                            <a class="nav-link how-to-nav-item" href="javascript:void(0)" onclick="scrollToStep(4)" style="border-radius: 0; padding: 0.75rem 1.5rem; font-weight: 500; border-left: 4px solid transparent;">
+                                4. Connection Validation
+                            </a>
+                            <a class="nav-link how-to-nav-item" href="javascript:void(0)" onclick="scrollToStep(5)" style="border-radius: 0; padding: 0.75rem 1.5rem; font-weight: 500; border-left: 4px solid transparent;">
+                                5. Start & Promote DMS
+                            </a>
+                        </div>
+                    </div>
+                    <!-- Right Content Area (Continuous scroll) -->
+                    <div class="flex-grow-1 p-4" id="how-to-use-content-container" style="max-height: 400px; overflow-y: scroll !important; background-color: #1e293b; color: #cbd5e1; scroll-behavior: smooth;">
+                        <!-- Step 1 Content -->
+                        <div id="step-desc-1" class="step-desc-section" style="margin-bottom: 2rem;">
+                            <h4 style="font-weight: 600; color: #f8fafc; font-size: 1.1rem; margin-bottom: 0.75rem;">1. AWS Credentials Configuration</h4>
+                            <p style="color: #cbd5e1; font-size: 0.9rem; line-height: 1.5;">Securely configure access to your source AWS environment.</p>
+                            <div style="background: #0f172a; border-radius: 8px; padding: 0.75rem 1rem; border-left: 4px solid #0ea5e9; margin-bottom: 1rem;">
+                                <strong style="font-size: 0.85rem; color: #f8fafc;"><i class="fas fa-key mr-1 text-info"></i> Prerequisites:</strong>
+                                <p style="font-size: 0.85rem; color: #94a3b8; margin: 0.25rem 0 0 0;">A 12-digit AWS Account ID and an IAM User Access Key ID / Secret Key with RDS read-only policies (e.g., <code>AmazonRDSReadOnlyAccess</code>).</p>
+                            </div>
+                            <h5 style="font-weight: 600; color: #e2e8f0; font-size: 0.9rem; margin-top: 1rem; margin-bottom: 0.5rem;">Instructions:</h5>
+                            <ol style="color: #cbd5e1; font-size: 0.85rem; line-height: 1.6; padding-left: 1.2rem;">
+                                <li>Click the <strong>AWS Widget</strong> on the home dashboard.</li>
+                                <li>Input your <strong>AWS Account ID</strong>, <strong>Access Key ID</strong>, and <strong>Secret Access Key</strong>.</li>
+                                <li>Click <strong>Configure AWS</strong>.</li>
+                                <li>The system validates the credentials with AWS Security Token Service (STS) before letting you proceed.</li>
+                            </ol>
+                        </div>
+                        <hr style="border-top: 1px solid #334155; margin: 2rem 0;">
+                        <!-- Step 2 Content -->
+                        <div id="step-desc-2" class="step-desc-section" style="margin-bottom: 2rem;">
+                            <h4 style="font-weight: 600; color: #f8fafc; font-size: 1.1rem; margin-bottom: 0.75rem;">2. Database Discovery</h4>
+                            <p style="color: #cbd5e1; font-size: 0.9rem; line-height: 1.5;">Scan your AWS environment to find database instances.</p>
+                            <h5 style="font-weight: 600; color: #e2e8f0; font-size: 0.9rem; margin-top: 1rem; margin-bottom: 0.5rem;">Instructions:</h5>
+                            <ol style="color: #cbd5e1; font-size: 0.85rem; line-height: 1.6; padding-left: 1.2rem;">
+                                <li>Clear or edit the <strong>Discovery Query</strong> input box.</li>
+                                <li>You can filter by engine or region (e.g., <em>"Discover only mysql databases in Mumbai region"</em>).</li>
+                                <li>Click <strong>Discover Databases</strong>. The background agent will scan the target regions and test compatibility parameters.</li>
+                            </ol>
+                        </div>
+                        <hr style="border-top: 1px solid #334155; margin: 2rem 0;">
+                        <!-- Step 3 Content -->
+                        <div id="step-desc-3" class="step-desc-section" style="margin-bottom: 2rem;">
+                            <h4 style="font-weight: 600; color: #f8fafc; font-size: 1.1rem; margin-bottom: 0.75rem;">3. Pre-Migration Assessment Report</h4>
+                            <p style="color: #cbd5e1; font-size: 0.9rem; line-height: 1.5;">Review compatibility scores and flags before starting a migration.</p>
+                            <h5 style="font-weight: 600; color: #e2e8f0; font-size: 0.9rem; margin-top: 1rem; margin-bottom: 0.5rem;">Instructions:</h5>
+                            <ol style="color: #cbd5e1; font-size: 0.85rem; line-height: 1.6; padding-left: 1.2rem;">
+                                <li>Read the parsed <strong>Pre-Migration Report</strong> generated for each instance.</li>
+                                <li>Check the flags for connectivity, replication slots, binlog settings, and engine versions.</li>
+                                <li>Address any highlighted flags in your AWS Console before initiating migration.</li>
+                            </ol>
+                        </div>
+                        <hr style="border-top: 1px solid #334155; margin: 2rem 0;">
+                        <!-- Step 4 Content -->
+                        <div id="step-desc-4" class="step-desc-section" style="margin-bottom: 2rem;">
+                            <h4 style="font-weight: 600; color: #f8fafc; font-size: 1.1rem; margin-bottom: 0.75rem;">4. Target Connection Validation</h4>
+                            <p style="color: #cbd5e1; font-size: 0.9rem; line-height: 1.5;">Confirm that Google Cloud can reach and authenticate with your source RDS database.</p>
+                            <h5 style="font-weight: 600; color: #e2e8f0; font-size: 0.9rem; margin-top: 1rem; margin-bottom: 0.5rem;">Instructions:</h5>
+                            <ol style="color: #cbd5e1; font-size: 0.85rem; line-height: 1.6; padding-left: 1.2rem;">
+                                <li>In Step 4 (Migrate), select your target database instance from the dropdown.</li>
+                                <li>Input the source database <strong>Port</strong>, <strong>Username</strong>, and <strong>Password</strong>.</li>
+                                <li>Click <strong>Validate Connection</strong> to run port-level and login verification checks.</li>
+                            </ol>
+                        </div>
+                        <hr style="border-top: 1px solid #334155; margin: 2rem 0;">
+                        <!-- Step 5 Content -->
+                        <div id="step-desc-5" class="step-desc-section" style="margin-bottom: 2rem;">
+                            <h4 style="font-weight: 600; color: #f8fafc; font-size: 1.1rem; margin-bottom: 0.75rem;">5. Start & Promote DMS Job</h4>
+                            <p style="color: #cbd5e1; font-size: 0.9rem; line-height: 1.5;">Configure, trigger, monitor, and finalize your database migration.</p>
+                            <h5 style="font-weight: 600; color: #e2e8f0; font-size: 0.9rem; margin-top: 1rem; margin-bottom: 0.5rem;">Instructions:</h5>
+                            <ol style="color: #cbd5e1; font-size: 0.85rem; line-height: 1.6; padding-left: 1.2rem;">
+                                <li>Click <strong>Configure DMS Migration Job</strong> to build connection profiles on GCP.</li>
+                                <li>Click <strong>Start Migration Job</strong> to launch the full-load stage.</li>
+                                <li>Review the status board. Once replication lag drops to <strong>0</strong>, click <strong>Promote Database</strong> to complete cutover and finalize the migration.</li>
+                            </ol>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer" style="background: #0f172a; border-top: 1px solid #334155; padding: 0.75rem 1.5rem;">
+                    <button type="button" class="btn btn-secondary btn-sm-custom" data-dismiss="modal" style="font-weight: 600; border: none; background: #334155; color: #f8fafc;">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
@@ -1115,6 +1256,48 @@
             } finally {
                 btn.disabled = false;
                 spinner.style.display = 'none';
+            }
+        });
+
+        // --- How to Use Modal ScrollSpy & Navigation Helpers ---
+        function scrollToStep(stepNum) {
+            const container = document.getElementById('how-to-use-content-container');
+            const target = document.getElementById(`step-desc-${stepNum}`);
+            if (container && target) {
+                const offsetTop = target.offsetTop - container.offsetTop;
+                container.scrollTo({
+                    top: offsetTop,
+                    behavior: 'smooth'
+                });
+                updateActiveSidebarItem(stepNum);
+            }
+        }
+
+        function updateActiveSidebarItem(stepNum) {
+            document.querySelectorAll('.how-to-nav-item').forEach((item, idx) => {
+                if (idx + 1 === stepNum) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const container = document.getElementById('how-to-use-content-container');
+            if (container) {
+                container.addEventListener('scroll', () => {
+                    const sections = document.querySelectorAll('.step-desc-section');
+                    let activeStep = 1;
+                    sections.forEach((section, idx) => {
+                        const rect = section.getBoundingClientRect();
+                        const containerRect = container.getBoundingClientRect();
+                        if (rect.top - containerRect.top <= 100) {
+                            activeStep = idx + 1;
+                        }
+                    });
+                    updateActiveSidebarItem(activeStep);
+                });
             }
         });
     </script>
