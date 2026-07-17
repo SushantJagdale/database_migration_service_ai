@@ -7,7 +7,7 @@ from root_agent.dbmigration.dbmigration_agent import dbmigration_dms_agent, get_
 from root_agent.aws_utils import reset_aws_session
 from database_validator import validate_database_metrics
 import asyncio
-from google.genai import types
+from google.genai import Client, types
 from google.adk.runners import InMemoryRunner
 import os
 import json
@@ -130,6 +130,55 @@ async def configure_aws(payload: ConfigureRequest):
         logging.exception("An error occurred during AWS configuration.")
         raise HTTPException(status_code=500, detail=str(e))
 
+def is_db_discovery_query(prompt: str) -> bool:
+    try:
+        model_name = os.environ.get("MODEL") or "gemini-2.5-flash"
+        api_key = os.getenv("GOOGLE_API_KEY")
+        
+        # Initialize client
+        if api_key:
+            client = Client(api_key=api_key)
+        else:
+            client = Client()
+            
+        classification_prompt = f"""You are an AI classifier for a Database Migration Service AI application.
+Your job is to determine whether a given user query is related to discovering, listing, scanning, or checking AWS RDS databases (MySQL, PostgreSQL) for Google Cloud DMS / migration compatibility.
+
+Examples of related queries:
+- "discover databases"
+- "check my postgres instances in us-east-1"
+- "scan for RDS databases"
+- "find mysql databases"
+- "check dms compatibility of ap-south-1 instances"
+
+Examples of unrelated queries:
+- "What is the capital of France?"
+- "Explain quantum computing."
+- "Write a python script to count words."
+- "What databases are supported by DMS?" (This is a general question about DMS, not a request to check/discover user's databases).
+- "How do I configure AWS?"
+
+Analyze the user's query carefully.
+If the query is related to discovering/scanning/checking the user's databases or instances, respond with ONLY the word "YES".
+If the query is not related, respond with ONLY the word "NO".
+
+User Query: "{prompt}"
+
+Response (YES or NO):"""
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=classification_prompt
+        )
+        
+        answer = response.text.strip().upper()
+        logging.info(f"Query classification for '{prompt}': {answer}")
+        return "YES" in answer
+    except Exception as e:
+        logging.error(f"Error during query classification: {e}")
+        # Default to True on error to not block actual query if API fails
+        return True
+
 @app.post('/discover')
 async def discover_databases(request: Request):
     """
@@ -148,6 +197,13 @@ async def discover_databases(request: Request):
 
     if not prompt:
         raise HTTPException(status_code=400, detail="Missing prompt")
+
+    if not is_db_discovery_query(prompt):
+        logging.info(f"Rejected non-discovery query: '{prompt}'")
+        raise HTTPException(
+            status_code=400,
+            detail="This agent will only respond to database discovery related queries only."
+        )
 
     # Clear old reports from backend directory to ensure no stale data persists
     backend_dir = os.path.dirname(os.path.abspath(__file__))
