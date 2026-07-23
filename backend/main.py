@@ -377,7 +377,8 @@ def get_target_instance_ip(instance_id: str) -> str:
     names_to_try = [instance_id, f"{instance_id}-tgt"]
     
     for name in names_to_try:
-        cmd = ["gcloud", "sql", "instances", "describe", name, f"--project={project_id}", "--format=json"]
+        from root_agent.dbmigration.dbmigration_agent import get_gcloud_path
+        cmd = [get_gcloud_path(), "sql", "instances", "describe", name, f"--project={project_id}", "--format=json"]
         logging.info(f"Running command to describe SQL instance: {' '.join(cmd)}")
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -402,6 +403,98 @@ def get_target_instance_ip(instance_id: str) -> str:
             logging.error(f"Error parsing Cloud SQL instance details: {e}")
             
     raise Exception(f"Could not find running Cloud SQL instance or resolve IP for: {instance_id}")
+
+@app.get('/gcp-topology')
+async def get_gcp_topology():
+    topology = {
+        "vpcs": ["default", "gc-vpc"],
+        "regions": [
+            "asia-south1", "asia-southeast1", "asia-southeast2", "asia-northeast1", "asia-northeast3",
+            "europe-west1", "europe-west2", "europe-west3", "us-central1", "us-east1",
+            "us-east4", "us-west1", "us-west2", "northamerica-northeast1", "southamerica-east1"
+        ],
+        "region_zone_map": {
+            'asia-south1': ['asia-south1-a', 'asia-south1-b', 'asia-south1-c'],
+            'us-east1': ['us-east1-b', 'us-east1-c', 'us-east1-d'],
+            'us-east4': ['us-east4-a', 'us-east4-b', 'us-east4-c'],
+            'us-west1': ['us-west1-a', 'us-west1-b', 'us-west1-c'],
+            'us-west2': ['us-west2-a', 'us-west2-b', 'us-west2-c'],
+            'europe-west1': ['europe-west1-b', 'europe-west1-c', 'europe-west1-d'],
+            'europe-west2': ['europe-west2-a', 'europe-west2-b', 'europe-west2-c'],
+            'europe-west3': ['europe-west3-a', 'europe-west3-b', 'europe-west3-c'],
+            'asia-northeast1': ['asia-northeast1-a', 'asia-northeast1-b', 'asia-northeast1-c'],
+            'asia-northeast3': ['asia-northeast3-a', 'asia-northeast3-b', 'asia-northeast3-c'],
+            'asia-southeast1': ['asia-southeast1-a', 'asia-southeast1-b', 'asia-southeast1-c'],
+            'asia-southeast2': ['asia-southeast2-a', 'asia-southeast2-b', 'asia-southeast2-c'],
+            'northamerica-northeast1': ['northamerica-northeast1-a', 'northamerica-northeast1-b', 'northamerica-northeast1-c'],
+            'southamerica-east1': ['southamerica-east1-a', 'southamerica-east1-b', 'southamerica-east1-c'],
+            'us-central1': ['us-central1-a', 'us-central1-b', 'us-central1-c', 'us-central1-f']
+        }
+    }
+    
+    try:
+        from root_agent.dbmigration.dbmigration_agent import run_cmd
+        
+        # 1. Fetch VPCs
+        try:
+            cmd_vpc = ["gcloud", "compute", "networks", "list", "--format=json"]
+            ret, out, err = run_cmd(cmd_vpc)
+            if ret == 0:
+                networks = json.loads(out)
+                topology["vpcs"] = [n.get("name") for n in networks if n.get("name")]
+        except Exception as e:
+            logging.warning(f"Could not load dynamic VPC list: {e}")
+            
+        # 2. Fetch Regions
+        try:
+            cmd_reg = ["gcloud", "compute", "regions", "list", "--format=json"]
+            ret, out, err = run_cmd(cmd_reg)
+            if ret == 0:
+                regions_list = json.loads(out)
+                topology["regions"] = sorted([r.get("name") for r in regions_list if r.get("name")])
+        except Exception as e:
+            logging.warning(f"Could not load dynamic GCP regions list: {e}")
+
+        # 3. Fetch Zones Map
+        try:
+            cmd_zone = ["gcloud", "compute", "zones", "list", "--format=json"]
+            ret, out, err = run_cmd(cmd_zone)
+            if ret == 0:
+                zones_list = json.loads(out)
+                dynamic_map = {}
+                for z in zones_list:
+                    zone_name = z.get("name")
+                    region_url = z.get("region", "")
+                    region_name = region_url.split("/")[-1] if region_url else ""
+                    if zone_name and region_name:
+                        if region_name not in dynamic_map:
+                            dynamic_map[region_name] = []
+                        dynamic_map[region_name].append(zone_name)
+                for r in dynamic_map:
+                    dynamic_map[r] = sorted(dynamic_map[r])
+                topology["region_zone_map"] = dynamic_map
+        except Exception as e:
+            logging.warning(f"Could not load dynamic GCP zones mapping: {e}")
+            
+    except Exception as general_err:
+        logging.warning(f"Failed to load dynamic GCP topology elements: {general_err}")
+        
+    return topology
+
+@app.get('/vpcs')
+async def get_vpcs():
+    try:
+        from root_agent.dbmigration.dbmigration_agent import run_cmd
+        cmd = ["gcloud", "compute", "networks", "list", "--format=json"]
+        ret, out, err = run_cmd(cmd)
+        if ret != 0:
+            raise Exception(f"Failed to list VPC networks: {err}")
+        networks = json.loads(out)
+        network_names = [n.get("name") for n in networks if n.get("name")]
+        return {"vpcs": network_names}
+    except Exception as e:
+        logging.exception("Error listing VPC networks")
+        return {"vpcs": ["default", "gc-vpc"]}
 
 @app.post('/validate')
 async def validate_database_endpoint(payload: ValidateRequest):

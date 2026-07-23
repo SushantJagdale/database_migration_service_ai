@@ -9,20 +9,67 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+def get_gcloud_path() -> str:
+    import shutil
+    path = shutil.which("gcloud")
+    if path:
+        return path
+    home_dir = os.path.expanduser("~")
+    common_paths = [
+        os.path.join(home_dir, "google-cloud-sdk", "bin", "gcloud"),
+        os.path.join(home_dir, "Downloads", "google-cloud-sdk", "bin", "gcloud"),
+        "/usr/local/bin/gcloud",
+        "/opt/homebrew/bin/gcloud",
+        "/usr/bin/gcloud"
+    ]
+    for p in common_paths:
+        if os.path.exists(p):
+            return p
+    return "gcloud"
+
 def run_cmd(cmd: list[str]) -> tuple[int, str, str]:
     """Runs a shell command and returns exit code, stdout, and stderr."""
+    if cmd and cmd[0] == "gcloud":
+        cmd[0] = get_gcloud_path()
     logging.info(f"Running command: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     return result.returncode, result.stdout, result.stderr
 
 def get_secret(secret_name: str) -> str:
     """Retrieves secret content from GCP Secret Manager."""
-    cmd = ["gcloud", "secrets", "versions", "access", "latest", f"--secret={secret_name}"]
-    ret, out, err = run_cmd(cmd)
-    if ret == 0:
-        return out.strip()
-    else:
-        raise Exception(f"Failed to retrieve secret '{secret_name}' from GCP Secret Manager: {err}")
+    try:
+        from google.cloud import secretmanager
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCP_PROJECT_ID")
+        if not project_id:
+            raise Exception("GCP_PROJECT_ID or GOOGLE_CLOUD_PROJECT environment variable is not set.")
+        
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8").strip()
+    except Exception as e:
+        logging.warning(f"Failed to retrieve secret '{secret_name}' via SecretManager client: {e}. Falling back to gcloud CLI...")
+        
+        # Fallback to gcloud CLI
+        cmd = ["gcloud", "secrets", "versions", "access", "latest", f"--secret={secret_name}"]
+        try:
+            ret, out, err = run_cmd(cmd)
+            if ret == 0:
+                return out.strip()
+            else:
+                raise Exception(err)
+        except FileNotFoundError:
+            raise Exception(
+                f"gcloud tool was not found and GCP Python client library failed. "
+                f"Please ensure that your GCP application credentials are configured correctly. "
+                f"Secret Manager client error: {e}"
+            )
+        except Exception as cli_err:
+            raise Exception(
+                f"Failed to retrieve secret from GCP Secret Manager (both python client and gcloud failed).\n"
+                f"Client error: {e}\n"
+                f"gcloud error: {cli_err}"
+            )
 
 def get_db_details_from_report(instance_id: str) -> Optional[dict]:
     """Parses local pre-migration markdown reports to find instance details."""
@@ -100,7 +147,7 @@ def map_rds_class_to_cloud_sql_tier(instance_class: str) -> str:
     else:
         return "db-custom-2-7680"
 
-def infer_target_settings(db_details: dict) -> dict:
+def infer_target_settings(db_details: dict, edition: Optional[str] = None) -> dict:
     """Infers the target Cloud SQL version, tier, and storage size from the source metadata."""
     engine = db_details.get("engine", "mysql").lower()
     version = db_details.get("version", "")
@@ -128,14 +175,22 @@ def infer_target_settings(db_details: dict) -> dict:
 
     # Map tier
     tier = map_rds_class_to_cloud_sql_tier(instance_class)
+    is_enterprise_plus = False
+    if edition and edition.upper().replace("-", "_") == "ENTERPRISE_PLUS":
+        is_enterprise_plus = True
     if settings.get("db_version") == "POSTGRES_17":
-        # Enterprise Plus edition is required for PostgreSQL 17, which needs db-perf-optimized-N-* tiers
+        is_enterprise_plus = True
+
+    if is_enterprise_plus:
+        # Enterprise Plus edition requires db-perf-optimized-N-* tiers
         try:
             parts = tier.split("-")
             # e.g., "db-custom-2-7680" -> ["db", "custom", "2", "7680"]
             if len(parts) >= 3 and parts[1] == "custom":
                 vcpus = parts[2]
                 tier = f"db-perf-optimized-N-{vcpus}"
+            elif not tier.startswith("db-perf-optimized"):
+                tier = "db-perf-optimized-N-2"
         except Exception:
             tier = "db-perf-optimized-N-2" # Fallback
     settings["tier"] = tier
@@ -196,7 +251,12 @@ def get_private_network_for_dms(region: str) -> Optional[str]:
 def configure_dms_resources(
     migration_job_name: str,
     region: str,
-    instance_id: str
+    instance_id: str,
+    edition: Optional[str] = None,
+    availability_type: Optional[str] = None,
+    zone: Optional[str] = None,
+    secondary_zone: Optional[str] = None,
+    vpc_network: Optional[str] = None,
 ) -> str:
     """
     Automated DMS configuration: pulls connection metadata from existing pre-migration reports,
@@ -225,7 +285,7 @@ def configure_dms_resources(
         return f"Error fetching credentials for instance '{instance_id}' from GCP Secret Manager: {e}"
 
     # 3. Infer target settings
-    tgt_settings = infer_target_settings(details)
+    tgt_settings = infer_target_settings(details, edition=edition)
     target_db_version = tgt_settings["db_version"]
     target_tier = tgt_settings["tier"]
     target_storage_size = tgt_settings.get("storage_size")
@@ -270,10 +330,50 @@ def configure_dms_resources(
     # 5. Check/Create Destination Connection Profile
     check_tgt_cmd = [
         "gcloud", "database-migration", "connection-profiles", "describe",
-        tgt_profile, f"--region={region}"
+        tgt_profile, f"--region={region}", "--format=json"
     ]
     ret, out, err = run_cmd(check_tgt_cmd)
-    if ret == 0:
+    
+    profile_exists = (ret == 0)
+    if profile_exists:
+        profile_state = None
+        try:
+            profile_data = json.loads(out)
+            profile_state = profile_data.get("state")
+        except Exception as parse_err:
+            logging.error(f"Error parsing connection profile state: {parse_err}")
+
+        if profile_state == "CREATING":
+            logging.info(f"Destination connection profile '{tgt_profile}' is still in CREATING state. Skipping SQL instance verification.")
+        elif profile_state == "FAILED":
+            logging.warning(f"Destination connection profile '{tgt_profile}' is in FAILED state. Deleting and recreating...")
+            delete_tgt_cmd = [
+                "gcloud", "database-migration", "connection-profiles", "delete",
+                tgt_profile, f"--region={region}", "--force", "--quiet"
+            ]
+            run_cmd(delete_tgt_cmd)
+            profile_exists = False
+        else:
+            # Check if the associated Cloud SQL instance actually exists (for READY or other states)
+            project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+            check_sql_cmd = [
+                "gcloud", "sql", "instances", "describe",
+                tgt_profile, f"--project={project_id}"
+            ]
+            ret_sql, _, _ = run_cmd(check_sql_cmd)
+            if ret_sql != 0:
+                logging.warning(
+                    f"Destination connection profile '{tgt_profile}' exists with state '{profile_state}', but its associated "
+                    f"Cloud SQL instance was not found. Deleting orphaned profile and recreating..."
+                )
+                delete_tgt_cmd = [
+                    "gcloud", "database-migration", "connection-profiles", "delete",
+                    tgt_profile, f"--region={region}", "--force", "--quiet"
+                ]
+                run_cmd(delete_tgt_cmd)
+                profile_exists = False
+
+    if profile_exists:
         tgt_msg = f"Destination connection profile '{tgt_profile}' already exists."
     else:
         create_tgt_cmd = [
@@ -284,17 +384,32 @@ def configure_dms_resources(
             f"--database-version-name={target_db_version}",
             f"--tier={target_tier}",
             f"--root-password={target_root_password}",
-            "--role=DESTINATION"
+            "--role=DESTINATION",
+            "--auto-storage-increase"
         ]
         if target_storage_size:
             create_tgt_cmd.append(f"--data-disk-size={str(target_storage_size)}")
 
-        private_network = get_private_network_for_dms(region)
-        if private_network:
+        if edition:
+            gcloud_edition = edition.lower().replace("_", "-")
+            create_tgt_cmd.append(f"--edition={gcloud_edition}")
+
+        if availability_type:
+            create_tgt_cmd.append(f"--availability-type={availability_type.upper()}")
+
+        if zone:
+            create_tgt_cmd.append(f"--zone={zone}")
+
+        if secondary_zone and availability_type == "REGIONAL":
+            create_tgt_cmd.append(f"--secondary-zone={secondary_zone}")
+
+        network_to_use = vpc_network or get_private_network_for_dms(region)
+        if network_to_use:
             create_tgt_cmd.extend([
-                f"--private-network={private_network}",
+                f"--private-network={network_to_use}",
                 "--no-enable-ip-v4"
             ])
+
         ret_c, out_c, err_c = run_cmd(create_tgt_cmd)
         if ret_c != 0:
             return f"Failed to initiate destination connection profile creation:\nStdout: {out_c}\nStderr: {err_c}"
@@ -318,9 +433,9 @@ def configure_dms_resources(
             "--all-databases",
             "--type=CONTINUOUS"
         ]
-        private_network = get_private_network_for_dms(region)
-        if private_network:
-            create_job_cmd.append(f"--peer-vpc={private_network}")
+        network_to_use = vpc_network or get_private_network_for_dms(region)
+        if network_to_use:
+            create_job_cmd.append(f"--peer-vpc={network_to_use}")
         else:
             create_job_cmd.append("--static-ip")
         ret_c, out_c, err_c = run_cmd(create_job_cmd)
@@ -412,6 +527,11 @@ Choose the appropriate tool based on the user's intent:
   - migration_job_name
   - region (default to 'us-central1' if not specified)
   - instance_id (the AWS database instance identifier, e.g., gemini-mysql-instance-1)
+  - edition (e.g. 'ENTERPRISE' or 'ENTERPRISE_PLUS')
+  - availability_type (e.g. 'ZONAL' or 'REGIONAL')
+  - zone (e.g. primary zone)
+  - secondary_zone (e.g. secondary zone for HA)
+  - vpc_network (e.g. custom VPC network selected by user)
   And call `configure_dms_resources`.
 - If the user wants to start the migration job, extract:
   - migration_job_name

@@ -511,15 +511,66 @@
                                             <input type="text" class="form-control form-control-sm-custom" id="dms_job_name" name="dms_job_name" placeholder="e.g. mysql-migration-job" required>
                                         </div>
                                         <div class="col-md-4 form-group form-group-sm">
-                                            <label for="dms_region" style="font-size: 0.9rem;">GCP Region</label>
-                                            <select class="form-control form-control-sm-custom" id="dms_region" name="dms_region" required>
+                                            <label for="dms_instance_id" style="font-size: 0.9rem;">Source Database Instance Identifier</label>
+                                            <select class="form-control form-control-sm-custom" id="dms_instance_id" name="dms_instance_id" required>
                                                 <option value="">Discover databases first</option>
                                             </select>
                                         </div>
                                         <div class="col-md-4 form-group form-group-sm">
-                                            <label for="dms_instance_id" style="font-size: 0.9rem;">Source Database Instance Identifier</label>
-                                            <select class="form-control form-control-sm-custom" id="dms_instance_id" name="dms_instance_id" required>
-                                                <option value="">Discover databases first</option>
+                                            <label for="dms_vpc" style="font-size: 0.9rem;">Associated networking VPC to peer</label>
+                                            <select class="form-control form-control-sm-custom" id="dms_vpc" name="dms_vpc" required>
+                                                <option value="">Loading VPCs...</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="row mt-2">
+                                        <div class="col-md-4 form-group form-group-sm">
+                                            <label for="dms_region" style="font-size: 0.9rem;">GCP Region</label>
+                                            <select class="form-control form-control-sm-custom" id="dms_region" name="dms_region" required>
+                                                <option value="">Select Region</option>
+                                                <option value="asia-south1">asia-south1 (Mumbai)</option>
+                                                <option value="asia-southeast1">asia-southeast1 (Singapore)</option>
+                                                <option value="asia-southeast2">asia-southeast2 (Jakarta)</option>
+                                                <option value="asia-northeast1">asia-northeast1 (Tokyo)</option>
+                                                <option value="asia-northeast3">asia-northeast3 (Seoul)</option>
+                                                <option value="europe-west1">europe-west1 (Ireland)</option>
+                                                <option value="europe-west2">europe-west2 (London)</option>
+                                                <option value="europe-west3">europe-west3 (Frankfurt)</option>
+                                                <option value="us-central1">us-central1 (Iowa)</option>
+                                                <option value="us-east1">us-east1 (S. Carolina)</option>
+                                                <option value="us-east4">us-east4 (N. Virginia)</option>
+                                                <option value="us-west1">us-west1 (Oregon)</option>
+                                                <option value="us-west2">us-west2 (Los Angeles)</option>
+                                                <option value="northamerica-northeast1">northamerica-northeast1 (Montreal)</option>
+                                                <option value="southamerica-east1">southamerica-east1 (Sao Paulo)</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4 form-group form-group-sm">
+                                            <label for="dms_availability" style="font-size: 0.9rem;">Availability Type (Zone)</label>
+                                            <select class="form-control form-control-sm-custom" id="dms_availability" name="dms_availability" required>
+                                                <option value="ZONAL">Single Zone (Zonal)</option>
+                                                <option value="REGIONAL">Multi-zone (HA / Regional)</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4 form-group form-group-sm">
+                                            <label for="dms_edition" style="font-size: 0.9rem;">Cloud SQL Edition</label>
+                                            <select class="form-control form-control-sm-custom" id="dms_edition" name="dms_edition" required>
+                                                <option value="ENTERPRISE">Enterprise</option>
+                                                <option value="ENTERPRISE_PLUS">Enterprise Plus</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="row mt-2">
+                                        <div class="col-md-6 form-group form-group-sm">
+                                            <label for="dms_zone" style="font-size: 0.9rem;">Primary Zone</label>
+                                            <select class="form-control form-control-sm-custom" id="dms_zone" name="dms_zone" required>
+                                                <option value="">Select a region first</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-6 form-group form-group-sm">
+                                            <label for="dms_secondary_zone" style="font-size: 0.9rem;">Secondary Zone (for HA)</label>
+                                            <select class="form-control form-control-sm-custom" id="dms_secondary_zone" name="dms_secondary_zone" disabled>
+                                                <option value="">Select Multi-zone (HA) first</option>
                                             </select>
                                         </div>
                                     </div>
@@ -536,13 +587,13 @@
                                             <span class="spinner" id="status-dms-spinner"></span>
                                             <span>Check DMS Status</span>
                                         </button>
-                                        <button type="button" class="btn btn-danger btn-sm-custom mr-2 mb-2" id="promote-dms-btn" disabled>
-                                            <span class="spinner" id="promote-dms-spinner"></span>
-                                            <span>Promote Database</span>
-                                        </button>
-                                        <button type="button" class="btn btn-success btn-sm-custom mb-2" id="validate-dms-btn" disabled>
+                                        <button type="button" class="btn btn-success btn-sm-custom mr-2 mb-2" id="validate-dms-btn" disabled>
                                             <span class="spinner" id="validate-dms-spinner"></span>
                                             <span>Validate Database</span>
+                                        </button>
+                                        <button type="button" class="btn btn-danger btn-sm-custom mb-2" id="promote-dms-btn" disabled>
+                                            <span class="spinner" id="promote-dms-spinner"></span>
+                                            <span>Promote Database</span>
                                         </button>
                                     </div>
                                     <div id="dms-result" class="mt-2"></div>
@@ -686,6 +737,7 @@
         const discoverBtn = document.getElementById('discover-btn');
 
         // DMS management elements
+        const dmsJobNameInput = document.getElementById('dms_job_name');
         const configureDmsBtn = document.getElementById('configure-dms-btn');
         const startDmsBtn = document.getElementById('start-dms-btn');
         const statusDmsBtn = document.getElementById('status-dms-btn');
@@ -693,6 +745,128 @@
         const validateDmsBtn = document.getElementById('validate-dms-btn');
         const dmsInstanceSelect = document.getElementById('dms_instance_id');
         const dmsRegionSelect = document.getElementById('dms_region');
+        const dmsVpcSelect = document.getElementById('dms_vpc');
+        const dmsAvailabilitySelect = document.getElementById('dms_availability');
+        const dmsEditionSelect = document.getElementById('dms_edition');
+        const dmsZoneSelect = document.getElementById('dms_zone');
+        const dmsSecondaryZoneSelect = document.getElementById('dms_secondary_zone');
+
+        let regionZoneMap = {
+            'asia-south1': ['asia-south1-a', 'asia-south1-b', 'asia-south1-c'],
+            'us-east1': ['us-east1-b', 'us-east1-c', 'us-east1-d'],
+            'us-east4': ['us-east4-a', 'us-east4-b', 'us-east4-c'],
+            'us-west1': ['us-west1-a', 'us-west1-b', 'us-west1-c'],
+            'us-west2': ['us-west2-a', 'us-west2-b', 'us-west2-c'],
+            'europe-west1': ['europe-west1-b', 'europe-west1-c', 'europe-west1-d'],
+            'europe-west2': ['europe-west2-a', 'europe-west2-b', 'europe-west2-c'],
+            'europe-west3': ['europe-west3-a', 'europe-west3-b', 'europe-west3-c'],
+            'asia-northeast1': ['asia-northeast1-a', 'asia-northeast1-b', 'asia-northeast1-c'],
+            'asia-northeast3': ['asia-northeast3-a', 'asia-northeast3-b', 'asia-northeast3-c'],
+            'asia-southeast1': ['asia-southeast1-a', 'asia-southeast1-b', 'asia-southeast1-c'],
+            'asia-southeast2': ['asia-southeast2-a', 'asia-southeast2-b', 'asia-southeast2-c'],
+            'northamerica-northeast1': ['northamerica-northeast1-a', 'northamerica-northeast1-b', 'northamerica-northeast1-c'],
+            'southamerica-east1': ['southamerica-east1-a', 'southamerica-east1-b', 'southamerica-east1-c'],
+            'us-central1': ['us-central1-a', 'us-central1-b', 'us-central1-c', 'us-central1-f']
+        };
+
+        async function loadGcpTopology() {
+            try {
+                const response = await fetch('/gcp-topology');
+                const data = await response.json();
+                if (response.ok) {
+                    if (data.vpcs) {
+                        dmsVpcSelect.innerHTML = '';
+                        data.vpcs.forEach(vpc => {
+                            const opt = document.createElement('option');
+                            opt.value = vpc;
+                            opt.textContent = vpc;
+                            dmsVpcSelect.appendChild(opt);
+                        });
+                        if (data.vpcs.includes('gc-vpc')) {
+                            dmsVpcSelect.value = 'gc-vpc';
+                        } else if (data.vpcs.includes('default')) {
+                            dmsVpcSelect.value = 'default';
+                        }
+                    }
+                    if (data.regions) {
+                        dmsRegionSelect.innerHTML = '<option value="">Select Region</option>';
+                        data.regions.forEach(region => {
+                            const opt = document.createElement('option');
+                            opt.value = region;
+                            opt.textContent = region;
+                            dmsRegionSelect.appendChild(opt);
+                        });
+                        if (data.regions.includes('us-central1')) {
+                            dmsRegionSelect.value = 'us-central1';
+                        }
+                    }
+                    if (data.region_zone_map) {
+                        regionZoneMap = data.region_zone_map;
+                    }
+                    if (dmsRegionSelect.value) {
+                        updateZonesForRegion(dmsRegionSelect.value);
+                    }
+                } else {
+                    console.error("GCP Topology response error:", data);
+                }
+            } catch (error) {
+                console.error("Error loading GCP Topology:", error);
+            }
+        }
+        loadGcpTopology();
+
+        function updateZonesForRegion(region) {
+            dmsZoneSelect.innerHTML = '<option value="">Select a zone</option>';
+            dmsSecondaryZoneSelect.innerHTML = '<option value="">Select a zone</option>';
+            
+            const zones = regionZoneMap[region] || [];
+            zones.forEach(zone => {
+                const opt1 = document.createElement('option');
+                opt1.value = zone;
+                opt1.textContent = zone;
+                dmsZoneSelect.appendChild(opt1);
+                
+                const opt2 = document.createElement('option');
+                opt2.value = zone;
+                opt2.textContent = zone;
+                dmsSecondaryZoneSelect.appendChild(opt2);
+            });
+            
+            if (zones.length > 0) {
+                dmsZoneSelect.value = zones[0];
+                if (zones.length > 1) {
+                    dmsSecondaryZoneSelect.value = zones[1];
+                }
+            }
+        }
+
+        dmsRegionSelect.addEventListener('change', () => {
+            updateZonesForRegion(dmsRegionSelect.value);
+            updateConfigureDmsButtonState();
+        });
+
+        dmsAvailabilitySelect.addEventListener('change', () => {
+            if (dmsAvailabilitySelect.value === 'REGIONAL') {
+                dmsSecondaryZoneSelect.disabled = false;
+                if (dmsSecondaryZoneSelect.value === dmsZoneSelect.value) {
+                    const zones = regionZoneMap[dmsRegionSelect.value] || [];
+                    const otherZone = zones.find(z => z !== dmsZoneSelect.value);
+                    if (otherZone) {
+                        dmsSecondaryZoneSelect.value = otherZone;
+                    }
+                }
+            } else {
+                dmsSecondaryZoneSelect.disabled = true;
+            }
+            updateConfigureDmsButtonState();
+        });
+
+        // Register form validation listeners for form inputs
+        dmsJobNameInput.addEventListener('input', updateConfigureDmsButtonState);
+        dmsVpcSelect.addEventListener('change', updateConfigureDmsButtonState);
+        dmsEditionSelect.addEventListener('change', updateConfigureDmsButtonState);
+        dmsZoneSelect.addEventListener('change', updateConfigureDmsButtonState);
+        dmsSecondaryZoneSelect.addEventListener('change', updateConfigureDmsButtonState);
 
         // Toggle AWS Migration Modal
         document.getElementById('aws-card').addEventListener('click', () => {
@@ -787,6 +961,7 @@
             validateDmsBtn.disabled = true;
             
             stopDmsPolling();
+            currentDmsStatus = null;
             
             stepUnlocked = {
                 1: true,
@@ -897,10 +1072,7 @@
 
                         // Populate migration dropdowns dynamically
                         dmsInstanceSelect.innerHTML = '<option value="">Select a database</option>';
-                        dmsRegionSelect.innerHTML = '<option value="">Select a region</option>';
-                        
                         const instances = data.instances || [];
-                        const uniqueGcpRegions = new Set();
                         
                         const awsToGcpRegionMap = {
                             'ap-south-1': 'asia-south1',
@@ -927,15 +1099,6 @@
                             opt.setAttribute('data-gcp-region', gcpReg);
                             opt.setAttribute('data-engine', inst.engine);
                             dmsInstanceSelect.appendChild(opt);
-                            
-                            uniqueGcpRegions.add(gcpReg);
-                        });
-                        
-                        uniqueGcpRegions.forEach(gcpReg => {
-                            const opt = document.createElement('option');
-                            opt.value = gcpReg;
-                            opt.textContent = gcpReg;
-                            dmsRegionSelect.appendChild(opt);
                         });
                         
                         dmsInstanceSelect.addEventListener('change', () => {
@@ -944,16 +1107,16 @@
                                 const gcpRegion = selectedOption.getAttribute('data-gcp-region');
                                 if (gcpRegion) {
                                     dmsRegionSelect.value = gcpRegion;
+                                    updateZonesForRegion(gcpRegion);
                                 }
-                                configureDmsBtn.disabled = false;
                             } else {
-                                configureDmsBtn.disabled = true;
                                 startDmsBtn.disabled = true;
                                 statusDmsBtn.disabled = true;
                                 promoteDmsBtn.disabled = true;
                                 validateDmsBtn.disabled = true;
                                 stopDmsPolling();
                             }
+                            updateConfigureDmsButtonState();
                         });
                         
                         stepUnlocked[3] = true;
@@ -980,10 +1143,39 @@
 
         // --- DMS Button State & Polling Helpers ---
         let dmsPollInterval = null;
+        let currentDmsStatus = null;
+
+        function checkDmsFormValidity() {
+            const jobName = dmsJobNameInput ? dmsJobNameInput.value.trim() : "";
+            const instanceId = dmsInstanceSelect ? dmsInstanceSelect.value : "";
+            const vpc = dmsVpcSelect ? dmsVpcSelect.value : "";
+            const region = dmsRegionSelect ? dmsRegionSelect.value : "";
+            const availability = dmsAvailabilitySelect ? dmsAvailabilitySelect.value : "";
+            const edition = dmsEditionSelect ? dmsEditionSelect.value : "";
+            const zone = dmsZoneSelect ? dmsZoneSelect.value : "";
+            
+            let isValid = jobName && instanceId && vpc && region && availability && edition && zone;
+            
+            if (availability === 'REGIONAL') {
+                const secondaryZone = dmsSecondaryZoneSelect ? dmsSecondaryZoneSelect.value : "";
+                isValid = isValid && secondaryZone && (secondaryZone !== zone);
+            }
+            
+            return !!isValid;
+        }
+
+        function updateConfigureDmsButtonState() {
+            if (currentDmsStatus && (currentDmsStatus.promoted || currentDmsStatus.state === 'COMPLETED')) {
+                configureDmsBtn.disabled = true;
+                return;
+            }
+            configureDmsBtn.disabled = !checkDmsFormValidity();
+        }
 
         function updateDmsButtonsState(status) {
+            currentDmsStatus = status;
             if (!status.configured) {
-                configureDmsBtn.disabled = !dmsInstanceSelect.value;
+                updateConfigureDmsButtonState();
                 startDmsBtn.disabled = true;
                 statusDmsBtn.disabled = true;
                 promoteDmsBtn.disabled = true;
@@ -991,7 +1183,7 @@
                 return;
             }
             
-            configureDmsBtn.disabled = false;
+            updateConfigureDmsButtonState();
             startDmsBtn.disabled = false;
             statusDmsBtn.disabled = false;
             validateDmsBtn.disabled = false;
@@ -1124,7 +1316,33 @@
                 return;
             }
 
-            const prompt = `Configure a continuous DMS job named ${jobName} in region ${region} for source database ${instanceId}.`;
+            let prompt = `Configure a continuous DMS job named ${jobName} in region ${region} for source database ${instanceId}.`;
+            
+            const edition = dmsEditionSelect.value;
+            if (edition) {
+                prompt += ` Use Cloud SQL edition: ${edition}.`;
+            }
+            
+            const availability = dmsAvailabilitySelect.value;
+            if (availability) {
+                prompt += ` Set availability type: ${availability}.`;
+            }
+            
+            const zone = dmsZoneSelect.value;
+            if (zone) {
+                prompt += ` Set primary zone: ${zone}.`;
+            }
+            
+            const secZone = dmsSecondaryZoneSelect.value;
+            if (secZone && availability === 'REGIONAL') {
+                prompt += ` Set secondary zone: ${secZone}.`;
+            }
+            
+            const vpc = dmsVpcSelect.value;
+            if (vpc) {
+                prompt += ` Set target VPC network: ${vpc}.`;
+            }
+
             const success = await callDmsAgent(prompt, 'configure-dms-btn', 'configure-dms-spinner');
             if (success) {
                 updateDmsButtonsState({

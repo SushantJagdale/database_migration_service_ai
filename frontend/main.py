@@ -74,6 +74,21 @@ def forward_post_request(endpoint: str, json_data: dict) -> dict:
     except requests.exceptions.JSONDecodeError:
         raise HTTPException(status_code=500, detail=f"Invalid JSON response from backend: {response.text}")
 
+def forward_get_request(endpoint: str) -> dict:
+    if not BACKEND_URL:
+        raise HTTPException(status_code=500, detail="BACKEND_URL is not configured")
+    try:
+        response = requests.get(f"{BACKEND_URL}{endpoint}")
+        if response.status_code >= 400:
+            try:
+                error_detail = response.json().get("detail", "Backend request failed.")
+            except Exception:
+                error_detail = response.text or "Backend request failed."
+            raise HTTPException(status_code=response.status_code, detail=error_detail)
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Failed to connect to backend: {e}")
+
 @app.post("/configure")
 async def configure(payload: ConfigureRequest):
     aws_account_id = payload.aws_account_id
@@ -106,6 +121,14 @@ async def validate_proxy(payload: ValidateRequest):
 @app.post("/dms/status")
 async def dms_status_proxy(payload: DmsStatusRequest):
     return forward_post_request("/dms/status", payload.model_dump())
+
+@app.get("/gcp-topology")
+async def gcp_topology_proxy():
+    return forward_get_request("/gcp-topology")
+
+@app.get("/vpcs")
+async def vpcs_proxy():
+    return forward_get_request("/vpcs")
 
 if __name__ == "__main__":
     import uvicorn

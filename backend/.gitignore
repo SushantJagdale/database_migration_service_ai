@@ -22,3 +22,8 @@ pycache/
 # Local state files
 *.tfstate
 *.tfstate.backup
+
+artifacts/*
+mysql_report.md
+postgres_report.md
+db_list.txt
