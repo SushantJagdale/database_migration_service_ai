@@ -407,7 +407,7 @@ def get_target_instance_ip(instance_id: str) -> str:
 @app.get('/gcp-topology')
 async def get_gcp_topology():
     topology = {
-        "vpcs": ["default", "gc-vpc"],
+        "vpcs": ["default"],
         "regions": [
             "asia-south1", "asia-southeast1", "asia-southeast2", "asia-northeast1", "asia-northeast3",
             "europe-west1", "europe-west2", "europe-west3", "us-central1", "us-east1",
@@ -494,7 +494,7 @@ async def get_vpcs():
         return {"vpcs": network_names}
     except Exception as e:
         logging.exception("Error listing VPC networks")
-        return {"vpcs": ["default", "gc-vpc"]}
+        return {"vpcs": ["default"]}
 
 @app.post('/validate')
 async def validate_database_endpoint(payload: ValidateRequest):

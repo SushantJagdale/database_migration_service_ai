@@ -208,12 +208,27 @@ def infer_target_settings(db_details: dict, edition: Optional[str] = None) -> di
         
     return settings
 
-def get_private_network_for_dms(region: str) -> Optional[str]:
+def get_private_network_for_dms(region: str, preferred_vpc: Optional[str] = None) -> Optional[str]:
     """
     Detects which VPC network has a target VPN gateway in the specified region.
-    If none is found, checks if 'gc-vpc' network exists.
-    Returns the network name (e.g., 'gc-vpc' or 'default') or None if no private network config should be applied.
+    If preferred_vpc is provided, validates that it exists in the network list first.
+    If none is found, falls back to checking 'default'.
+    Returns the network name (e.g., 'default') or None if no private network config should be applied.
     """
+    # 0. If preferred_vpc is specified, verify it exists and return it
+    if preferred_vpc:
+        cmd_net = ["gcloud", "compute", "networks", "list", "--format=json"]
+        ret_n, out_n, err_n = run_cmd(cmd_net)
+        if ret_n == 0:
+            try:
+                networks = json.loads(out_n)
+                network_names = [n.get("name") for n in networks if n.get("name")]
+                if preferred_vpc in network_names:
+                    logging.info(f"Preferred VPC network '{preferred_vpc}' detected in network list. Using it.")
+                    return preferred_vpc
+            except Exception as e:
+                logging.error(f"Failed to parse networks list JSON: {e}")
+
     # 1. Check target VPN gateways
     cmd_vpn = ["gcloud", "compute", "target-vpn-gateways", "list", "--format=json"]
     ret, out, err = run_cmd(cmd_vpn)
@@ -232,20 +247,20 @@ def get_private_network_for_dms(region: str) -> Optional[str]:
         except Exception as e:
             logging.error(f"Failed to parse target-vpn-gateways JSON: {e}")
 
-    # 2. If no VPN gateway matches, check if 'gc-vpc' network exists
+    # 2. Check fallback: 'default'
     cmd_net = ["gcloud", "compute", "networks", "list", "--format=json"]
     ret_n, out_n, err_n = run_cmd(cmd_net)
     if ret_n == 0:
         try:
             networks = json.loads(out_n)
             network_names = [n.get("name") for n in networks if n.get("name")]
-            if "gc-vpc" in network_names:
-                logging.info("VPC network 'gc-vpc' detected in network list. Using 'gc-vpc' as target network.")
-                return "gc-vpc"
+            if "default" in network_names:
+                logging.info("Fallback VPC network 'default' detected in network list. Using 'default' as target network.")
+                return "default"
         except Exception as e:
             logging.error(f"Failed to parse networks list JSON: {e}")
 
-    logging.warning(f"No VPN gateway found in region '{region}' and VPC network 'gc-vpc' is not listable. Defaulting to None.")
+    logging.warning(f"No VPN gateway found in region '{region}' and no preferred or fallback VPC network is listable. Defaulting to None.")
     return None
 
 def configure_dms_resources(
@@ -403,7 +418,7 @@ def configure_dms_resources(
         if secondary_zone and availability_type == "REGIONAL":
             create_tgt_cmd.append(f"--secondary-zone={secondary_zone}")
 
-        network_to_use = vpc_network or get_private_network_for_dms(region)
+        network_to_use = get_private_network_for_dms(region, preferred_vpc=vpc_network)
         if network_to_use:
             create_tgt_cmd.extend([
                 f"--private-network={network_to_use}",
@@ -433,7 +448,7 @@ def configure_dms_resources(
             "--all-databases",
             "--type=CONTINUOUS"
         ]
-        network_to_use = vpc_network or get_private_network_for_dms(region)
+        network_to_use = get_private_network_for_dms(region, preferred_vpc=vpc_network)
         if network_to_use:
             create_job_cmd.append(f"--peer-vpc={network_to_use}")
         else:
