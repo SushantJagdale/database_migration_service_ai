@@ -122,6 +122,22 @@ async def validate_proxy(payload: ValidateRequest):
 async def dms_status_proxy(payload: DmsStatusRequest):
     return forward_post_request("/dms/status", payload.model_dump())
 
+@app.post("/dms/verify")
+async def dms_verify_proxy(payload: DmsStatusRequest):
+    return forward_post_request("/dms/verify", payload.model_dump())
+
+@app.post("/dms/diagnose")
+async def dms_diagnose_proxy(payload: DmsStatusRequest):
+    return forward_post_request("/dms/diagnose", payload.model_dump())
+
+@app.post("/dms/resume")
+async def dms_resume_proxy(payload: DmsStatusRequest):
+    return forward_post_request("/dms/resume", payload.model_dump())
+
+@app.post("/dms/restart")
+async def dms_restart_proxy(payload: DmsStatusRequest):
+    return forward_post_request("/dms/restart", payload.model_dump())
+
 @app.get("/gcp-topology")
 async def gcp_topology_proxy():
     return forward_get_request("/gcp-topology")
@@ -132,4 +148,4 @@ async def vpcs_proxy():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8081)
+    uvicorn.run(app, host="127.0.0.1", port=8081)

@@ -49,21 +49,23 @@ def parse_md_report(file_path):
         if not section_content.strip():
             continue
 
-        data = {"metadata": {}, "checks": {}}
+        data = {"metadata": {}, "checks": {}, "suggestions": ""}
         lines = section_content.split('\n')
         section = None
         in_checks_table = False
+        in_code_block = False
         current_check = None
+        suggestion_lines = []
 
-        # The first line is the agent name, which we can skip or use as a title
-        # For example: "MySQL\n\n## RDS Instance Metadata..."
-        
         for line in lines:
             if line.startswith("## RDS Instance Metadata"):
                 section = "metadata"
                 in_checks_table = False
             elif line.startswith("## Prerequisite Checks"):
                 section = "checks"
+                in_checks_table = False
+            elif line.startswith("## Suggested Alterations"):
+                section = "suggestions"
                 in_checks_table = False
             elif section == "metadata" and line.startswith("- **"):
                 parts = line.split(":** ", 1)
@@ -82,6 +84,14 @@ def parse_md_report(file_path):
                 elif len(parts) == 1 and current_check:
                     # This handles multi-line statuses within the same check
                     data["checks"][current_check] += "<br>" + parts[0]
+            elif section == "suggestions":
+                if line.strip().startswith("```"):
+                    in_code_block = not in_code_block
+                elif in_code_block or (line.strip() and "No alterations needed" not in line):
+                    suggestion_lines.append(line)
+
+        if suggestion_lines:
+            data["suggestions"] = "\n".join(suggestion_lines).strip()
         
         if data["metadata"] or data["checks"]:
             reports.append(data)
@@ -160,6 +170,7 @@ def generate_html_table(data, columns):
     if not data or not data.get("checks"):
         return ""
 
+    import html as html_lib
     num_checks = len(data["checks"])
     if num_checks == 0:
         return "<p>No prerequisite checks were performed for this instance.</p>"
@@ -191,7 +202,7 @@ def generate_html_table(data, columns):
     metadata["Memory"] = memory
     metadata["Storage"] = f"{metadata.get('AllocatedStorage', 'N/A')} GiB"
 
-    db_id = metadata.get("DBInstanceIdentifier", "").replace("-", "") # Sanitize for ID
+    db_id = metadata.get("DBInstanceIdentifier", "")
     is_first_row = True
 
     for check_name, status in data["checks"].items():
@@ -200,7 +211,7 @@ def generate_html_table(data, columns):
         if is_first_row:
             for col in columns:
                 if col not in ["check_name", "status"]:
-                    value = metadata.get(col, "N/A")
+                    value = html_lib.escape(str(metadata.get(col, "N/A")))
                     html += f"<td rowspan={num_checks}>{value}</td>"
         
         status_lines = status.split('<br>')
@@ -211,19 +222,33 @@ def generate_html_table(data, columns):
                 status_class = "pass"
             elif "FAIL" in status_text:
                 status_class = "fail"
+            elif "WARNING" in status_text:
+                status_class = "warn"
             else:
                 status_class = "info"
-            formatted_status_lines.append(f"<span class='{status_class}'>{line}</span>")
+            formatted_status_lines.append(f"<span class='{status_class}'>{html_lib.escape(line)}</span>")
         
         formatted_status = "<br>".join(formatted_status_lines)
         
-        html += f"<td><strong>{check_name}</strong></td>"
+        html += f"<td><strong>{html_lib.escape(check_name)}</strong></td>"
         html += f"<td class='status-cell'>{formatted_status}</td>"
 
         html += "</tr>"
         is_first_row = False
     
     html += "</table>"
+
+    suggestions = data.get("suggestions", "")
+    if suggestions:
+        escaped_suggestions = html_lib.escape(suggestions)
+        escaped_db_id = html_lib.escape(str(db_id))
+        html += (
+            f"<details class='remediation-box'>"
+            f"<summary>Suggested Remediation &amp; Prerequisite Commands for <code>{escaped_db_id}</code></summary>"
+            f"<pre><code>{escaped_suggestions}</code></pre>"
+            f"</details>"
+        )
+
     return html
 
 def find_report_file(filename):
@@ -245,19 +270,24 @@ def main():
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; background-color: #e5e7eb; }
         h1, h2 { color: #333; }
-        table { border-collapse: collapse; width: 100%; margin-bottom: 2em; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 0.75em; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
         th, td { padding: 12px; text-align: left; }
         th { background-color: #607D8B; color: white; }
         tr:nth-child(even) { background-color: #f9f9f9; }
-        .pass, .fail, .info { display: inline-flex; align-items: center; gap: 8px; }
+        .pass, .fail, .warn, .info { display: inline-flex; align-items: center; gap: 8px; }
         .pass { color: green; }
         .fail { color: red; }
+        .warn { color: #b45309; }
         .info { color: #00529B; }
-        .status-cell .pass, .status-cell .fail, .status-cell .info { font-weight: bold; }
-        .status-cell .pass::before, .status-cell .fail::before, .status-cell .info::before { content: ''; display: inline-block; width: 12px; height: 12px; border-radius: 50%; }
+        .status-cell .pass, .status-cell .fail, .status-cell .warn, .status-cell .info { font-weight: bold; }
+        .status-cell .pass::before, .status-cell .fail::before, .status-cell .warn::before, .status-cell .info::before { content: ''; display: inline-block; width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
         .status-cell .pass::before { background-color: green; }
         .status-cell .fail::before { background-color: red; }
+        .status-cell .warn::before { background-color: #d97706; }
         .status-cell .info::before { background-color: #00529B; }
+        .remediation-box { margin-bottom: 2em; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 0.75em 1em; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .remediation-box summary { cursor: pointer; font-weight: 600; color: #38bdf8; outline: none; }
+        .remediation-box pre { margin: 0.75em 0 0 0; overflow-x: auto; font-size: 0.85rem; line-height: 1.5; color: #f8fafc; }
         .container { max-width: 1200px; margin: auto; background: white; padding: 2em; border-radius: 8px; }
         button { background-color: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; }
         button:hover { background-color: #2980b9; }

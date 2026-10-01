@@ -169,6 +169,77 @@ def get_specific_db_parameter(group_name, region_name, parameter_name):
         print(f"Error fetching parameter {parameter_name} for group {group_name}: {e}")
         return None
 
+def get_cluster_parameter_group_settings(cluster_id, region_name='us-east-1'):
+    """Fetches DB cluster parameter group settings for Aurora instances if attached to a cluster."""
+    rds_client = get_aws_client('rds', region_name=region_name)
+    if not rds_client or not cluster_id:
+        return None, None
+    try:
+        cluster_resp = rds_client.describe_db_clusters(DBClusterIdentifier=cluster_id)
+        clusters = cluster_resp.get('DBClusters', [])
+        if not clusters:
+            return None, None
+        cluster_pg = clusters[0].get('DBClusterParameterGroup')
+        if not cluster_pg:
+            return None, None
+        paginator = rds_client.get_paginator('describe_db_cluster_parameters')
+        parameters = []
+        for page in paginator.paginate(DBClusterParameterGroupName=cluster_pg):
+            parameters.extend(page.get('Parameters', []))
+        return cluster_pg, parameters
+    except Exception as e:
+        print(f"Error fetching cluster parameters for {cluster_id}: {e}")
+        return None, None
+
+def get_rds_cloudwatch_metrics(instance_id, region_name='us-east-1', days=7):
+    """
+    Fetches 7-day peak and average CPUUtilization, FreeableMemory, ReadIOPS, and WriteIOPS
+    from AWS CloudWatch to assist with Cloud SQL right-sizing recommendations.
+    """
+    from datetime import datetime, timedelta, timezone
+    cw_client = get_aws_client('cloudwatch', region_name=region_name)
+    if not cw_client:
+        return {}
+
+    end_time = datetime.now(timezone.utc)
+    start_time = end_time - timedelta(days=days)
+    period = 3600 * 6  # 6-hour granularity over 7 days
+
+    metrics_summary = {}
+    metric_queries = [
+        ("CPUUtilization", ["Average", "Maximum"]),
+        ("FreeableMemory", ["Average", "Minimum"]),
+        ("ReadIOPS", ["Average", "Maximum"]),
+        ("WriteIOPS", ["Average", "Maximum"]),
+    ]
+
+    for metric_name, stats in metric_queries:
+        try:
+            resp = cw_client.get_metric_statistics(
+                Namespace="AWS/RDS",
+                MetricName=metric_name,
+                Dimensions=[{"Name": "DBInstanceIdentifier", "Value": instance_id}],
+                StartTime=start_time,
+                EndTime=end_time,
+                Period=period,
+                Statistics=stats,
+            )
+            datapoints = resp.get("Datapoints", [])
+            if datapoints:
+                if "Average" in stats:
+                    avg_val = sum(d.get("Average", 0) for d in datapoints) / len(datapoints)
+                    metrics_summary[f"{metric_name}_Avg"] = round(avg_val, 2)
+                if "Maximum" in stats:
+                    max_val = max(d.get("Maximum", 0) for d in datapoints)
+                    metrics_summary[f"{metric_name}_Max"] = round(max_val, 2)
+                if "Minimum" in stats:
+                    min_val = min(d.get("Minimum", 0) for d in datapoints)
+                    metrics_summary[f"{metric_name}_Min"] = round(min_val, 2)
+        except Exception as e:
+            print(f"CloudWatch metric {metric_name} unavailable for {instance_id}: {e}")
+
+    return metrics_summary
+
 def reset_aws_session():
     """Clears the cache for AWS session and client to force reloading credentials."""
     get_aws_session.cache_clear()

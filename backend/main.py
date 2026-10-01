@@ -499,8 +499,8 @@ async def get_vpcs():
 @app.post('/validate')
 async def validate_database_endpoint(payload: ValidateRequest):
     """
-    Connects to the target Cloud SQL instance, counts tables, schemas, and rows,
-    and returns a summary report.
+    Connects to the target Cloud SQL instance (and optionally source RDS instance),
+    counts tables, schemas, sequences, and rows, and returns a side-by-side parity report.
     """
     try:
         if not payload.instance_id or not payload.engine:
@@ -516,27 +516,49 @@ async def validate_database_endpoint(payload: ValidateRequest):
             logging.exception("Failed to resolve target IP address.")
             raise HTTPException(status_code=404, detail=str(resolve_err))
             
-        # 2. Fetch the password from Secret Manager
+        # 2. Fetch the credentials from Secret Manager
         try:
             pass_secret = f"{instance_id}_password"
             db_password = get_secret(pass_secret)
         except Exception as secret_err:
             logging.exception("Failed to fetch password from Secret Manager.")
             raise HTTPException(status_code=500, detail=f"Failed to fetch database credentials from Secret Manager: {secret_err}")
+
+        source_user = None
+        try:
+            source_user = get_secret(f"{instance_id}_user")
+        except Exception:
+            pass
+
+        # 3. Attempt to resolve source RDS host/port from discovery report for side-by-side comparison
+        source_host = None
+        source_port = None
+        try:
+            from root_agent.dbmigration.dbmigration_agent import get_db_details_from_report
+            src_details = get_db_details_from_report(instance_id)
+            if src_details:
+                source_host = src_details.get("host")
+                source_port = int(src_details.get("port")) if src_details.get("port") else None
+        except Exception as src_err:
+            logging.warning(f"Could not load source RDS endpoint for parity diff: {src_err}")
             
-        # 3. Determine connection properties
+        # 4. Determine target connection properties
         is_postgres = "postgres" in engine
         db_user = "postgres" if is_postgres else "root"
         db_port = 5432 if is_postgres else 3306
         
-        # 4. Perform direct database metrics queries
-        logging.info(f"Triggering direct validation on {engine} target at {target_ip}:{db_port}")
+        # 5. Perform direct database metrics & parity queries
+        logging.info(f"Triggering direct validation on {engine} target at {target_ip}:{db_port} (source={source_host})")
         validation_results = validate_database_metrics(
             engine=engine,
             host=target_ip,
             port=db_port,
             user=db_user,
-            password=db_password
+            password=db_password,
+            source_host=source_host,
+            source_port=source_port,
+            source_user=source_user,
+            source_password=db_password,
         )
         
         if "error" in validation_results:
@@ -556,38 +578,23 @@ class DmsStatusRequest(BaseModel):
 
 def get_dms_job_status(job_name: str, region: str) -> dict:
     try:
-        from root_agent.dbmigration.dbmigration_agent import check_dms_status
-        status_md = check_dms_status(job_name, region)
-        state = "UNKNOWN"
-        phase = "UNKNOWN"
-        for line in status_md.split("\n"):
-            if "State" in line:
-                state = line.split(":")[-1].strip().replace("**", "").replace("*", "")
-            elif "Phase" in line:
-                phase = line.split(":")[-1].strip().replace("**", "").replace("*", "")
-        
-        if state != "UNKNOWN" and "Failed to check" not in status_md:
-            return {
-                "configured": True,
-                "state": state,
-                "phase": phase,
-                "lag": 0,
-                "promoted": state == "COMPLETED" or state == "PROMOTED",
-                "job_name": job_name,
-                "region": region
-            }
+        from root_agent.dbmigration.dbmigration_agent import get_dms_job_structured_status
+        return get_dms_job_structured_status(job_name, region)
     except Exception as e:
         logging.warning(f"Failed to query real DMS status: {e}")
-
-    return {
-        "configured": False,
-        "state": "NONE",
-        "phase": "NONE",
-        "lag": 0,
-        "promoted": False,
-        "job_name": job_name,
-        "region": region
-    }
+        return {
+            "configured": False,
+            "state": "NONE",
+            "phase": "NONE",
+            "lag": 0,
+            "promoted": False,
+            "job_name": job_name,
+            "region": region,
+            "has_error": False,
+            "error_code": None,
+            "error_message": None,
+            "resolution": None,
+        }
 
 @app.post("/dms/status")
 async def dms_status_endpoint(payload: DmsStatusRequest):
@@ -598,4 +605,4 @@ async def dms_status_endpoint(payload: DmsStatusRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=8091)
+    uvicorn.run(app, host='127.0.0.1', port=8091)

@@ -117,6 +117,13 @@ resource "google_project_iam_member" "backend_compute_viewer" {
   member  = "serviceAccount:${google_service_account.backend.email}"
 }
 
+# Grant the backend service account access to read Cloud Logging entries for DMS error diagnosis
+resource "google_project_iam_member" "backend_logging_viewer" {
+  project = var.project_id
+  role    = "roles/logging.viewer"
+  member  = "serviceAccount:${google_service_account.backend.email}"
+}
+
 # --- Cloud Run: Backend Service ---
 
 resource "google_cloud_run_v2_service" "backend" {
@@ -180,7 +187,8 @@ resource "google_cloud_run_v2_service" "backend" {
     google_project_iam_member.backend_secret_accessor,
     google_project_iam_member.backend_dms_admin,
     google_project_iam_member.backend_cloudsql_admin,
-    google_project_iam_member.backend_compute_viewer
+    google_project_iam_member.backend_compute_viewer,
+    google_project_iam_member.backend_logging_viewer
   ]
 }
 

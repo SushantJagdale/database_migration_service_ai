@@ -579,6 +579,10 @@
                                             <span class="spinner" id="configure-dms-spinner"></span>
                                             <span>Configure DMS Job</span>
                                         </button>
+                                        <button type="button" class="btn btn-outline-primary btn-sm-custom mr-2 mb-2" id="verify-dms-btn" style="border: 1px solid #4f46e5;" disabled>
+                                            <span class="spinner" id="verify-dms-spinner"></span>
+                                            <span>Verify DMS Job</span>
+                                        </button>
                                         <button type="button" class="btn btn-info btn-sm-custom mr-2 mb-2" id="start-dms-btn" disabled>
                                             <span class="spinner" id="start-dms-spinner"></span>
                                             <span>Start DMS Job</span>
@@ -586,6 +590,18 @@
                                         <button type="button" class="btn btn-secondary btn-sm-custom mr-2 mb-2" id="status-dms-btn" disabled>
                                             <span class="spinner" id="status-dms-spinner"></span>
                                             <span>Check DMS Status</span>
+                                        </button>
+                                        <button type="button" class="btn btn-warning btn-sm-custom mr-2 mb-2 text-dark" id="diagnose-dms-btn" disabled>
+                                            <span class="spinner" id="diagnose-dms-spinner"></span>
+                                            <span>Diagnose Errors</span>
+                                        </button>
+                                        <button type="button" class="btn btn-dark btn-sm-custom mr-2 mb-2" id="resume-dms-btn" disabled>
+                                            <span class="spinner" id="resume-dms-spinner"></span>
+                                            <span>Resume Job</span>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-danger btn-sm-custom mr-2 mb-2" id="restart-dms-btn" style="border: 1px solid #ef4444;" disabled>
+                                            <span class="spinner" id="restart-dms-spinner"></span>
+                                            <span>Restart Job</span>
                                         </button>
                                         <button type="button" class="btn btn-success btn-sm-custom mr-2 mb-2" id="validate-dms-btn" disabled>
                                             <span class="spinner" id="validate-dms-spinner"></span>
@@ -596,6 +612,7 @@
                                             <span>Promote Database</span>
                                         </button>
                                     </div>
+                                    <div id="dms-error-advisor" class="mt-2"></div>
                                     <div id="dms-result" class="mt-2"></div>
                                 </form>
                             </div>
@@ -739,8 +756,12 @@
         // DMS management elements
         const dmsJobNameInput = document.getElementById('dms_job_name');
         const configureDmsBtn = document.getElementById('configure-dms-btn');
+        const verifyDmsBtn = document.getElementById('verify-dms-btn');
         const startDmsBtn = document.getElementById('start-dms-btn');
         const statusDmsBtn = document.getElementById('status-dms-btn');
+        const diagnoseDmsBtn = document.getElementById('diagnose-dms-btn');
+        const resumeDmsBtn = document.getElementById('resume-dms-btn');
+        const restartDmsBtn = document.getElementById('restart-dms-btn');
         const promoteDmsBtn = document.getElementById('promote-dms-btn');
         const validateDmsBtn = document.getElementById('validate-dms-btn');
         const dmsInstanceSelect = document.getElementById('dms_instance_id');
@@ -750,6 +771,16 @@
         const dmsEditionSelect = document.getElementById('dms_edition');
         const dmsZoneSelect = document.getElementById('dms_zone');
         const dmsSecondaryZoneSelect = document.getElementById('dms_secondary_zone');
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
 
         let regionZoneMap = {
             'asia-south1': ['asia-south1-a', 'asia-south1-b', 'asia-south1-c'],
@@ -947,6 +978,7 @@
             document.getElementById('configure-result').innerHTML = '';
             document.getElementById('discover-result').innerHTML = '';
             document.getElementById('dms-result').innerHTML = '';
+            document.getElementById('dms-error-advisor').innerHTML = '';
             
             dmsInstanceSelect.innerHTML = '<option value="">Discover databases first</option>';
             dmsRegionSelect.innerHTML = '<option value="">Discover databases first</option>';
@@ -955,8 +987,12 @@
             discoverBtn.disabled = true;
             document.getElementById('discover-prompt').disabled = true;
             configureDmsBtn.disabled = true;
+            verifyDmsBtn.disabled = true;
             startDmsBtn.disabled = true;
             statusDmsBtn.disabled = true;
+            diagnoseDmsBtn.disabled = true;
+            resumeDmsBtn.disabled = true;
+            restartDmsBtn.disabled = true;
             promoteDmsBtn.disabled = true;
             validateDmsBtn.disabled = true;
             
@@ -1110,10 +1146,15 @@
                                     updateZonesForRegion(gcpRegion);
                                 }
                             } else {
+                                verifyDmsBtn.disabled = true;
                                 startDmsBtn.disabled = true;
                                 statusDmsBtn.disabled = true;
+                                diagnoseDmsBtn.disabled = true;
+                                resumeDmsBtn.disabled = true;
+                                restartDmsBtn.disabled = true;
                                 promoteDmsBtn.disabled = true;
                                 validateDmsBtn.disabled = true;
+                                document.getElementById('dms-error-advisor').innerHTML = '';
                                 stopDmsPolling();
                             }
                             updateConfigureDmsButtonState();
@@ -1176,19 +1217,27 @@
             currentDmsStatus = status;
             if (!status.configured) {
                 updateConfigureDmsButtonState();
+                verifyDmsBtn.disabled = true;
                 startDmsBtn.disabled = true;
                 statusDmsBtn.disabled = true;
+                diagnoseDmsBtn.disabled = true;
+                resumeDmsBtn.disabled = true;
+                restartDmsBtn.disabled = true;
                 promoteDmsBtn.disabled = true;
                 validateDmsBtn.disabled = true;
                 return;
             }
             
             updateConfigureDmsButtonState();
+            verifyDmsBtn.disabled = false;
             startDmsBtn.disabled = false;
             statusDmsBtn.disabled = false;
+            diagnoseDmsBtn.disabled = false;
+            resumeDmsBtn.disabled = false;
+            restartDmsBtn.disabled = false;
             validateDmsBtn.disabled = false;
             
-            if (status.state === 'RUNNING' && status.phase === 'CDC' && status.lag === 0) {
+            if (status.state === 'RUNNING' && status.phase === 'CDC' && status.lag === 0 && !status.has_error) {
                 promoteDmsBtn.disabled = false;
             } else {
                 promoteDmsBtn.disabled = true;
@@ -1196,11 +1245,59 @@
             
             if (status.promoted || status.state === 'COMPLETED') {
                 configureDmsBtn.disabled = true;
+                verifyDmsBtn.disabled = true;
                 startDmsBtn.disabled = true;
                 statusDmsBtn.disabled = true;
+                diagnoseDmsBtn.disabled = true;
+                resumeDmsBtn.disabled = true;
+                restartDmsBtn.disabled = true;
                 promoteDmsBtn.disabled = true;
                 validateDmsBtn.disabled = true;
             }
+        }
+
+        function renderErrorAdvisor(status) {
+            const advisorDiv = document.getElementById('dms-error-advisor');
+            if (!advisorDiv) return;
+
+            if (!status || !status.has_error || !status.resolution) {
+                advisorDiv.innerHTML = '';
+                return;
+            }
+
+            const res = status.resolution;
+            const stepsHtml = (res.resolution_steps || [])
+                .map(s => `<li>${escapeHtml(s)}</li>`)
+                .join('');
+            const cmdText = escapeHtml(res.remediation_commands || '');
+            const recAction = escapeHtml((res.recommended_action || 'resume').toUpperCase());
+
+            advisorDiv.innerHTML = `
+                <div class="alert alert-danger mt-2" style="border-left: 5px solid #dc2626; background-color: #fef2f2; color: #7f1d1d;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0" style="font-weight: 700; color: #991b1b;">
+                            AI Replication Error Advisor — ${escapeHtml(res.category || 'DMS Replication Issue')}
+                        </h6>
+                        <span class="badge badge-danger">Phase: ${escapeHtml(status.phase || res.phase || 'UNKNOWN')}</span>
+                    </div>
+                    <div class="small mb-2">
+                        <strong>Error Details:</strong> <code>${escapeHtml(status.error_message || 'Replication halted; see remediation below')}</code>
+                        ${status.error_code ? `<span class="ml-2 badge badge-secondary">Code: ${escapeHtml(status.error_code)}</span>` : ''}
+                    </div>
+                    <div class="small mb-2">
+                        <strong>Root Cause:</strong> ${escapeHtml(res.root_cause || '')}
+                    </div>
+                    <div class="small mb-2">
+                        <strong>Suggested Resolution Steps:</strong>
+                        <ol class="mb-1 pl-4">${stepsHtml}</ol>
+                    </div>
+                    ${cmdText ? `<pre class="p-2 rounded mb-2" style="background: #0f172a; color: #f8fafc; font-size: 0.8rem; overflow-x: auto;"><code>${cmdText}</code></pre>` : ''}
+                    <div class="small font-weight-bold">
+                        Recommended Recovery Action: <span class="badge badge-dark">${recAction}</span>
+                        (Use the <em>Resume Job</em> or <em>Restart Job</em> button above after applying the fix)
+                    </div>
+                </div>
+            `;
         }
 
         function startDmsPolling(jobName, region) {
@@ -1228,27 +1325,28 @@
                 if (response.ok) {
                     const status = await response.json();
                     updateDmsButtonsState(status);
+                    renderErrorAdvisor(status);
 
                     const resultDiv = document.getElementById('dms-result');
                     let adviceHtml = '';
-                    if (status.state === 'RUNNING' && status.phase === 'CDC' && status.lag === 0) {
+                    if (status.has_error) {
+                        adviceHtml = `<div class="alert alert-danger mt-2"><strong>Status Advice:</strong> Replication encountered an error during <strong>${escapeHtml(status.phase)}</strong> (State: ${escapeHtml(status.state)}). Review the <strong>AI Replication Error Advisor</strong> above for the exact fix and recovery command.</div>`;
+                    } else if (status.state === 'RUNNING' && status.phase === 'CDC' && status.lag === 0) {
                         adviceHtml = '<div class="alert alert-success mt-2"><strong>Status Advice:</strong> The database migration job is in CDC status and replication lag is 0. The target database is ready for Promotion!</div>';
                     } else if (status.state === 'RUNNING') {
-                        adviceHtml = `<div class="alert alert-warning mt-2"><strong>Status Advice:</strong> The migration job is running (Phase: ${status.phase}, Lag: ${status.lag}s). Wait for the phase to reach CDC and lag to become 0 before promoting.</div>`;
+                        adviceHtml = `<div class="alert alert-warning mt-2"><strong>Status Advice:</strong> The migration job is running (Phase: ${escapeHtml(status.phase)}, Lag: ${escapeHtml(status.lag)}s). Wait for the phase to reach CDC and lag to become 0 before promoting.</div>`;
                     } else if (status.state === 'COMPLETED' || status.promoted) {
                         adviceHtml = '<div class="alert alert-success mt-2"><strong>Status Advice:</strong> The database has been promoted successfully. Migration complete!</div>';
                     } else if (status.state === 'NOT_STARTED') {
-                        adviceHtml = '<div class="alert alert-info mt-2"><strong>Status Advice:</strong> Job has been configured. Click "Start DMS Job" to begin replication.</div>';
+                        adviceHtml = '<div class="alert alert-info mt-2"><strong>Status Advice:</strong> Job has been configured. Click "Verify DMS Job" or "Start DMS Job" to begin replication.</div>';
                     } else {
-                        adviceHtml = `<div class="alert alert-secondary mt-2"><strong>Status Advice:</strong> Migration job status is currently: ${status.state}.</div>`;
+                        adviceHtml = `<div class="alert alert-secondary mt-2"><strong>Status Advice:</strong> Migration job status is currently: ${escapeHtml(status.state)} (Phase: ${escapeHtml(status.phase)}).</div>`;
                     }
                     
                     // If resultDiv has content, append or wrap advice
                     if (resultDiv.innerHTML) {
-                        // Check if an existing advice block is there, if so, replace it, otherwise append.
                         const adviceMatch = resultDiv.innerHTML.indexOf('Status Advice:');
                         if (adviceMatch !== -1) {
-                            // Clear and reset advice
                             resultDiv.innerHTML = resultDiv.innerHTML.split('<div class="alert alert-')[0] + adviceHtml;
                         } else {
                             resultDiv.innerHTML += adviceHtml;
@@ -1285,7 +1383,7 @@
                 const data = await response.json();
                 
                 if (response.ok) {
-                    let output = data.output;
+                    let output = escapeHtml(data.output || '');
                     const formattedOutput = output.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
                     resultDiv.innerHTML = `<div class="alert alert-success">${formattedOutput}</div>`;
                     return true;
@@ -1294,11 +1392,11 @@
                     if (typeof errDetail === 'object') {
                         errDetail = JSON.stringify(errDetail);
                     }
-                    resultDiv.innerHTML = `<div class="alert alert-danger">Error: ${errDetail}</div>`;
+                    resultDiv.innerHTML = `<div class="alert alert-danger">Error: ${escapeHtml(errDetail)}</div>`;
                     return false;
                 }
             } catch (error) {
-                resultDiv.innerHTML = `<div class="alert alert-danger">An unexpected error occurred: ${error}</div>`;
+                resultDiv.innerHTML = `<div class="alert alert-danger">An unexpected error occurred: ${escapeHtml(error)}</div>`;
                 return false;
             } finally {
                 btn.disabled = false;
@@ -1355,6 +1453,18 @@
             }
         });
 
+        document.getElementById('verify-dms-btn').addEventListener('click', async () => {
+            const jobName = document.getElementById('dms_job_name').value;
+            const region = document.getElementById('dms_region').value;
+            if (!jobName) {
+                alert("Please specify the DMS Migration Job Name.");
+                return;
+            }
+            const prompt = `Verify database migration job ${jobName} in region ${region}.`;
+            await callDmsAgent(prompt, 'verify-dms-btn', 'verify-dms-spinner');
+            checkJobStatusAndUpdate(jobName, region);
+        });
+
         document.getElementById('start-dms-btn').addEventListener('click', async () => {
             const jobName = document.getElementById('dms_job_name').value;
             const region = document.getElementById('dms_region').value;
@@ -1379,6 +1489,46 @@
             const prompt = `Check status of database migration job ${jobName} in region ${region}.`;
             await callDmsAgent(prompt, 'status-dms-btn', 'status-dms-spinner');
             checkJobStatusAndUpdate(jobName, region);
+        });
+
+        document.getElementById('diagnose-dms-btn').addEventListener('click', async () => {
+            const jobName = document.getElementById('dms_job_name').value;
+            const region = document.getElementById('dms_region').value;
+            if (!jobName) {
+                alert("Please specify the DMS Migration Job Name.");
+                return;
+            }
+            const prompt = `Diagnose replication errors and suggest resolution for database migration job ${jobName} in region ${region}.`;
+            await callDmsAgent(prompt, 'diagnose-dms-btn', 'diagnose-dms-spinner');
+            checkJobStatusAndUpdate(jobName, region);
+        });
+
+        document.getElementById('resume-dms-btn').addEventListener('click', async () => {
+            const jobName = document.getElementById('dms_job_name').value;
+            const region = document.getElementById('dms_region').value;
+            if (!jobName) {
+                alert("Please specify the DMS Migration Job Name.");
+                return;
+            }
+            const prompt = `Resume database migration job ${jobName} in region ${region}.`;
+            const success = await callDmsAgent(prompt, 'resume-dms-btn', 'resume-dms-spinner');
+            if (success) {
+                startDmsPolling(jobName, region);
+            }
+        });
+
+        document.getElementById('restart-dms-btn').addEventListener('click', async () => {
+            const jobName = document.getElementById('dms_job_name').value;
+            const region = document.getElementById('dms_region').value;
+            if (!jobName) {
+                alert("Please specify the DMS Migration Job Name.");
+                return;
+            }
+            const prompt = `Restart database migration job ${jobName} in region ${region}.`;
+            const success = await callDmsAgent(prompt, 'restart-dms-btn', 'restart-dms-spinner');
+            if (success) {
+                startDmsPolling(jobName, region);
+            }
         });
 
         document.getElementById('promote-dms-btn').addEventListener('click', async () => {
@@ -1418,7 +1568,7 @@
             const spinner = document.getElementById('validate-dms-spinner');
             const resultDiv = document.getElementById('dms-result');
             
-            resultDiv.innerHTML = '<div class="alert alert-info">Connecting to target Cloud SQL and querying schema structures. Please wait...</div>';
+            resultDiv.innerHTML = '<div class="alert alert-info">Connecting to target Cloud SQL (and source RDS if reachable) to audit schema and row count parity. Please wait...</div>';
             btn.disabled = true;
             spinner.style.display = 'inline-block';
             
@@ -1431,22 +1581,49 @@
                 const data = await response.json();
                 
                 if (response.ok) {
+                    const summary = data.parity_summary || {};
+                    const srcConnected = !!summary.source_connected;
                     let html = '<div class="alert alert-success">';
-                    html += '<h5 class="mb-2"><strong>Database Validation Report</strong></h5>';
+                    html += '<div class="d-flex justify-content-between align-items-center mb-2">';
+                    html += '<h5 class="mb-0"><strong>Database Parity &amp; Validation Report</strong></h5>';
+                    if (summary.total_tables !== undefined) {
+                        const badgeClass = summary.mismatched_tables > 0 ? 'badge-warning' : 'badge-success';
+                        html += `<span class="badge ${badgeClass}" style="font-size: 0.85rem;">Parity: ${escapeHtml(summary.parity_percentage)}% (${escapeHtml(summary.matched_tables)}/${escapeHtml(summary.total_tables)} Tables Verified)</span>`;
+                    }
+                    html += '</div>';
+
                     if (data.databases && data.databases.length > 0) {
                         data.databases.forEach(db => {
-                            html += `<div class="mt-3"><strong>Database Name:</strong> <code class="text-dark bg-light px-2 py-1 rounded">${db.name}</code>`;
+                            html += `<div class="mt-3"><strong>Database Name:</strong> <code class="text-dark bg-light px-2 py-1 rounded">${escapeHtml(db.name)}</code>`;
                             if (db.error) {
-                                html += `<div class="text-danger mt-1">Failed to query details: ${db.error}</div>`;
+                                html += `<div class="text-danger mt-1">Failed to query details: ${escapeHtml(db.error)}</div>`;
                             } else if (db.schemas) {
                                 db.schemas.forEach(sch => {
-                                    html += `<div class="ml-3 mt-2"><strong>Schema:</strong> <code>${sch.name}</code>`;
+                                    const seqInfo = sch.sequences_count !== undefined ? ` <span class="badge badge-info ml-2">Sequences: ${escapeHtml(sch.sequences_count)}</span>` : '';
+                                    html += `<div class="ml-3 mt-2"><strong>Schema:</strong> <code>${escapeHtml(sch.name)}</code>${seqInfo}`;
                                     if (sch.tables && sch.tables.length > 0) {
-                                        html += '<table class="table table-sm table-bordered mt-2 bg-white" style="max-width: 600px; font-size: 0.9rem;">';
-                                        html += '<thead class="thead-light"><tr><th>Table Name</th><th class="text-right">Row Count</th></tr></thead><tbody>';
+                                        html += '<table class="table table-sm table-bordered mt-2 bg-white" style="max-width: 780px; font-size: 0.9rem;">';
+                                        if (srcConnected) {
+                                            html += '<thead class="thead-light"><tr><th>Table Name</th><th class="text-right">Source RDS Rows</th><th class="text-right">Target Cloud SQL Rows</th><th class="text-right">Delta</th><th class="text-center">Status</th></tr></thead><tbody>';
+                                        } else {
+                                            html += '<thead class="thead-light"><tr><th>Table Name</th><th class="text-right">Target Cloud SQL Rows</th><th class="text-center">Status</th></tr></thead><tbody>';
+                                        }
                                         sch.tables.forEach(tbl => {
-                                            const rowCountText = tbl.rows === -1 ? '<span class="text-warning">Count Error</span>' : tbl.rows.toLocaleString();
-                                            html += `<tr><td>${tbl.name}</td><td class="text-right">${rowCountText}</td></tr>`;
+                                            const tgtRows = tbl.rows === -1 ? '<span class="text-warning">Count Error</span>' : Number(tbl.rows).toLocaleString();
+                                            const statusBadge = tbl.status === 'MATCH' || tbl.status === 'VERIFIED'
+                                                ? '<span class="badge badge-success">PASS</span>'
+                                                : `<span class="badge badge-danger">${escapeHtml(tbl.status || 'MISMATCH')}</span>`;
+                                            if (srcConnected) {
+                                                const srcRows = (tbl.source_rows === null || tbl.source_rows === undefined || tbl.source_rows === -1)
+                                                    ? '<span class="text-muted">N/A</span>'
+                                                    : Number(tbl.source_rows).toLocaleString();
+                                                const diffText = (tbl.diff === null || tbl.diff === undefined)
+                                                    ? 'N/A'
+                                                    : (tbl.diff === 0 ? '0' : (tbl.diff > 0 ? `+${tbl.diff}` : `${tbl.diff}`));
+                                                html += `<tr><td>${escapeHtml(tbl.name)}</td><td class="text-right">${srcRows}</td><td class="text-right">${tgtRows}</td><td class="text-right">${escapeHtml(diffText)}</td><td class="text-center">${statusBadge}</td></tr>`;
+                                            } else {
+                                                html += `<tr><td>${escapeHtml(tbl.name)}</td><td class="text-right">${tgtRows}</td><td class="text-center">${statusBadge}</td></tr>`;
+                                            }
                                         });
                                         html += '</tbody></table>';
                                     } else {
@@ -1467,10 +1644,10 @@
                     if (typeof errDetail === 'object') {
                         errDetail = JSON.stringify(errDetail);
                     }
-                    resultDiv.innerHTML = `<div class="alert alert-danger"><strong>Error:</strong> ${errDetail}</div>`;
+                    resultDiv.innerHTML = `<div class="alert alert-danger"><strong>Error:</strong> ${escapeHtml(errDetail)}</div>`;
                 }
             } catch (error) {
-                resultDiv.innerHTML = `<div class="alert alert-danger"><strong>An unexpected error occurred:</strong> ${error}</div>`;
+                resultDiv.innerHTML = `<div class="alert alert-danger"><strong>An unexpected error occurred:</strong> ${escapeHtml(error)}</div>`;
             } finally {
                 btn.disabled = false;
                 spinner.style.display = 'none';

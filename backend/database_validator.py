@@ -1,15 +1,26 @@
 import logging
 import pg8000
 import pymysql
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 # Configure logging
 logger = logging.getLogger("database_validator")
 
+
+def _quote_pg_ident(ident: str) -> str:
+    """Safely quotes a PostgreSQL identifier by doubling any embedded double-quotes."""
+    return '"' + str(ident).replace('"', '""') + '"'
+
+
+def _quote_mysql_ident(ident: str) -> str:
+    """Safely quotes a MySQL identifier by doubling any embedded backticks."""
+    return '`' + str(ident).replace('`', '``') + '`'
+
+
 def validate_postgres(host: str, port: int, user: str, password: str) -> Dict[str, Any]:
     """
-    Connects to target PostgreSQL database, discovers user databases,
-    schemas, tables, and counts rows.
+    Connects to a PostgreSQL database instance, discovers user databases,
+    schemas, tables, sequences, and counts rows.
     """
     results = {"databases": []}
     
@@ -20,7 +31,10 @@ def validate_postgres(host: str, port: int, user: str, password: str) -> Dict[st
         conn = pg8000.connect(host=host, port=port, user=user, password=password, database="postgres", timeout=15)
         cursor = conn.cursor()
         
-        cursor.execute("SELECT datname FROM pg_database WHERE datistemplate = false AND datname NOT IN ('postgres', 'cloudsqladmin');")
+        cursor.execute(
+            "SELECT datname FROM pg_database "
+            "WHERE datistemplate = false AND datname NOT IN ('postgres', 'cloudsqladmin', 'rdsadmin');"
+        )
         db_names = [row[0] for row in cursor.fetchall()]
         cursor.close()
         conn.close()
@@ -41,15 +55,26 @@ def validate_postgres(host: str, port: int, user: str, password: str) -> Dict[st
             db_cursor.execute("""
                 SELECT schema_name 
                 FROM information_schema.schemata 
-                WHERE schema_name NOT IN ('pg_catalog', 'information_schema')
+                WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pglogical')
                   AND schema_name NOT LIKE 'pg_temp_%'
                   AND schema_name NOT LIKE 'pg_toast_%';
             """)
             schemas = [row[0] for row in db_cursor.fetchall()]
             
             for schema in schemas:
-                schema_info = {"name": schema, "tables": []}
+                schema_info = {"name": schema, "tables": [], "sequences_count": 0}
                 
+                # Count sequences in this schema
+                try:
+                    db_cursor.execute(
+                        "SELECT COUNT(*) FROM information_schema.sequences WHERE sequence_schema = %s;",
+                        (schema,)
+                    )
+                    seq_row = db_cursor.fetchone()
+                    schema_info["sequences_count"] = int(seq_row[0]) if seq_row else 0
+                except Exception:
+                    schema_info["sequences_count"] = 0
+
                 # List tables in this schema
                 db_cursor.execute("""
                     SELECT table_name 
@@ -60,10 +85,11 @@ def validate_postgres(host: str, port: int, user: str, password: str) -> Dict[st
                 tables = [row[0] for row in db_cursor.fetchall()]
                 
                 for table in tables:
-                    # Count rows in each table
                     row_count = 0
                     try:
-                        db_cursor.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}";')
+                        safe_schema = _quote_pg_ident(schema)
+                        safe_table = _quote_pg_ident(table)
+                        db_cursor.execute(f"SELECT COUNT(*) FROM {safe_schema}.{safe_table};")
                         row_count = db_cursor.fetchone()[0]
                     except Exception as count_err:
                         logger.warning(f"Could not count rows for table {schema}.{table}: {count_err}")
@@ -92,9 +118,10 @@ def validate_postgres(host: str, port: int, user: str, password: str) -> Dict[st
 
     return results
 
+
 def validate_mysql(host: str, port: int, user: str, password: str) -> Dict[str, Any]:
     """
-    Connects to target MySQL database, discovers databases, tables, and counts rows.
+    Connects to a MySQL database instance, discovers databases, tables, and counts rows.
     """
     results = {"databases": []}
     conn = None
@@ -120,20 +147,20 @@ def validate_mysql(host: str, port: int, user: str, password: str) -> Dict[str, 
         
         for db_name in user_dbs:
             # Under MySQL, "schemas" and "databases" are synonymous.
-            # We map database to a default schema structure for consistency.
             db_info = {"name": db_name, "schemas": [{"name": db_name, "tables": []}]}
             
-            # Select the database
-            cursor.execute(f"USE `{db_name}`;")
+            safe_db = _quote_mysql_ident(db_name)
+            cursor.execute(f"USE {safe_db};")
             
             # List tables
-            cursor.execute("SHOW TABLES;")
+            cursor.execute("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE';")
             tables = [row[0] for row in cursor.fetchall()]
             
             for table in tables:
                 row_count = 0
                 try:
-                    cursor.execute(f"SELECT COUNT(*) FROM `{table}`;")
+                    safe_table = _quote_mysql_ident(table)
+                    cursor.execute(f"SELECT COUNT(*) FROM {safe_table};")
                     row_count = cursor.fetchone()[0]
                 except Exception as count_err:
                     logger.warning(f"Could not count rows for table {db_name}.{table}: {count_err}")
@@ -160,13 +187,127 @@ def validate_mysql(host: str, port: int, user: str, password: str) -> Dict[str, 
                 
     return results
 
-def validate_database_metrics(engine: str, host: str, port: int, user: str, password: str) -> Dict[str, Any]:
+
+def _merge_source_and_target_metrics(
+    target_results: Dict[str, Any],
+    source_results: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
     """
-    Dispatcher to validate database metrics based on engine type.
+    Merges source RDS row counts with target Cloud SQL row counts to produce
+    a side-by-side data parity report.
     """
-    if "postgres" in engine.lower():
-        return validate_postgres(host, port, user, password)
-    elif "mysql" in engine.lower():
-        return validate_mysql(host, port, user, password)
+    if "error" in target_results:
+        return target_results
+
+    source_lookup: Dict[tuple, int] = {}
+    source_connected = bool(source_results and "databases" in source_results and "error" not in source_results)
+
+    if source_connected and source_results:
+        for s_db in source_results.get("databases", []):
+            db_name = s_db.get("name")
+            for s_sch in s_db.get("schemas", []):
+                sch_name = s_sch.get("name")
+                for s_tbl in s_sch.get("tables", []):
+                    tbl_name = s_tbl.get("name")
+                    source_lookup[(db_name, sch_name, tbl_name)] = s_tbl.get("rows", -1)
+
+    total_tables = 0
+    matched_tables = 0
+    mismatched_tables = 0
+
+    for t_db in target_results.get("databases", []):
+        db_name = t_db.get("name")
+        for t_sch in t_db.get("schemas", []):
+            sch_name = t_sch.get("name")
+            seen_tables = set()
+            for t_tbl in t_sch.get("tables", []):
+                tbl_name = t_tbl.get("name")
+                seen_tables.add(tbl_name)
+                total_tables += 1
+                t_rows = t_tbl.get("rows", -1)
+                t_tbl["target_rows"] = t_rows
+
+                if source_connected:
+                    s_rows = source_lookup.get((db_name, sch_name, tbl_name))
+                    t_tbl["source_rows"] = s_rows
+                    if s_rows is not None and s_rows >= 0 and t_rows >= 0:
+                        diff = t_rows - s_rows
+                        t_tbl["diff"] = diff
+                        if diff == 0:
+                            t_tbl["status"] = "MATCH"
+                            matched_tables += 1
+                        else:
+                            t_tbl["status"] = "MISMATCH"
+                            mismatched_tables += 1
+                    else:
+                        t_tbl["diff"] = None
+                        t_tbl["status"] = "TARGET_ONLY"
+                else:
+                    t_tbl["source_rows"] = None
+                    t_tbl["diff"] = None
+                    t_tbl["status"] = "VERIFIED" if t_rows >= 0 else "ERROR"
+                    if t_rows >= 0:
+                        matched_tables += 1
+
+            # Check if any source tables in this schema are missing on target
+            if source_connected:
+                for (s_db_n, s_sch_n, s_tbl_n), s_rows in source_lookup.items():
+                    if s_db_n == db_name and s_sch_n == sch_name and s_tbl_n not in seen_tables:
+                        total_tables += 1
+                        mismatched_tables += 1
+                        t_sch["tables"].append({
+                            "name": s_tbl_n,
+                            "rows": 0,
+                            "target_rows": 0,
+                            "source_rows": s_rows,
+                            "diff": -s_rows if s_rows >= 0 else None,
+                            "status": "MISSING_ON_TARGET",
+                        })
+
+    parity_pct = round((matched_tables / total_tables) * 100.0, 1) if total_tables > 0 else 100.0
+    target_results["parity_summary"] = {
+        "source_connected": source_connected,
+        "total_tables": total_tables,
+        "matched_tables": matched_tables,
+        "mismatched_tables": mismatched_tables,
+        "parity_percentage": parity_pct,
+    }
+    return target_results
+
+
+def validate_database_metrics(
+    engine: str,
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    source_host: Optional[str] = None,
+    source_port: Optional[int] = None,
+    source_user: Optional[str] = None,
+    source_password: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Dispatcher to validate target database metrics and optionally compare side-by-side
+    against the source RDS instance for 100% data parity verification.
+    """
+    engine_lower = engine.lower()
+    if "postgres" in engine_lower:
+        target_res = validate_postgres(host, port, user, password)
+        source_res = None
+        if source_host and source_user and source_password:
+            try:
+                source_res = validate_postgres(source_host, source_port or 5432, source_user, source_password)
+            except Exception as e:
+                logger.warning(f"Could not connect to source Postgres for side-by-side comparison: {e}")
+        return _merge_source_and_target_metrics(target_res, source_res)
+    elif "mysql" in engine_lower:
+        target_res = validate_mysql(host, port, user, password)
+        source_res = None
+        if source_host and source_user and source_password:
+            try:
+                source_res = validate_mysql(source_host, source_port or 3306, source_user, source_password)
+            except Exception as e:
+                logger.warning(f"Could not connect to source MySQL for side-by-side comparison: {e}")
+        return _merge_source_and_target_metrics(target_res, source_res)
     else:
         return {"error": f"Unsupported database engine for direct validation: {engine}"}

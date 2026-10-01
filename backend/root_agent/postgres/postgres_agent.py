@@ -1,4 +1,11 @@
-from ..aws_utils import get_rds_metadata, get_parameter_group_settings, list_all_rds_dbs, get_specific_db_parameter
+from ..aws_utils import (
+    get_rds_metadata,
+    get_parameter_group_settings,
+    list_all_rds_dbs,
+    get_specific_db_parameter,
+    get_cluster_parameter_group_settings,
+    get_rds_cloudwatch_metrics,
+)
 from google.adk.agents import LlmAgent
 from ..report_generator import generate_report
 import os
@@ -18,9 +25,9 @@ def check_postgres_version(instance_id: str, region: str) -> str:
             engine_version = metadata.get('EngineVersion', 'Unknown')
             supported_versions = ['10', '11', '12', '13', '14', '15', '16', '17']
             if any(engine_version.startswith(v) for v in supported_versions):
-                return "PASS: Compatible."
+                return f"PASS: Compatible ({engine_version})."
             else:
-                return f"FAIL: Not compatible. Must be one of {supported_versions}."
+                return f"FAIL: Not compatible ({engine_version}). Must be one of {supported_versions}."
         return "FAIL: Could not retrieve RDS metadata."
     except Exception as e:
         return f"Error checking PostgreSQL version: {e}"
@@ -32,7 +39,15 @@ def check_postgres_logical_params(instance_id: str, region: str) -> str:
         if not metadata or not metadata.get('DBParameterGroups'):
             return "FAIL: Could not retrieve parameter group for the instance."
         group_name = metadata['DBParameterGroups'][0]['DBParameterGroupName']
-        params = get_parameter_group_settings(group_name, region)
+        params = get_parameter_group_settings(group_name, region) or []
+
+        # Also check cluster parameter group if this is an Aurora PostgreSQL instance
+        cluster_id = metadata.get('DBClusterIdentifier')
+        if cluster_id:
+            _, cluster_params = get_cluster_parameter_group_settings(cluster_id, region)
+            if cluster_params:
+                params = cluster_params + params
+
         if not params:
             return f"FAIL: Could not retrieve parameters for group {group_name}."
         
@@ -106,6 +121,137 @@ def check_postgres_worker_params(instance_id: str, region: str) -> str:
     except Exception as e:
         return f"Error checking PostgreSQL worker params: {e}"
 
+def check_postgres_cloudwatch_sizing(instance_id: str, region: str) -> str:
+    """Evaluates 7-day CloudWatch CPU & IOPS metrics for right-sizing recommendations."""
+    try:
+        cw = get_rds_cloudwatch_metrics(instance_id, region)
+        if not cw:
+            return "INFO: CloudWatch metrics unavailable; 1:1 instance class sizing will be used."
+        cpu_avg = cw.get("CPUUtilization_Avg", 0)
+        cpu_max = cw.get("CPUUtilization_Max", 0)
+        read_iops = cw.get("ReadIOPS_Max", 0)
+        write_iops = cw.get("WriteIOPS_Max", 0)
+        summary = f"7d CPU Avg: {cpu_avg}%, Max: {cpu_max}% | Peak IOPS (R/W): {read_iops}/{write_iops}"
+        if cpu_max > 0 and cpu_max < 25.0:
+            return f"PASS: {summary}\nINFO: Low peak CPU (<25%) detected. Candidate for Cloud SQL tier right-sizing (cost optimization)."
+        elif cpu_max > 80.0:
+            return f"WARNING: {summary}\nINFO: High CPU utilization (>80%) detected. Consider Cloud SQL Enterprise Plus or scaling up vCPUs."
+        return f"PASS: {summary}"
+    except Exception as e:
+        return f"INFO: Could not evaluate CloudWatch sizing metrics: {e}"
+
+def check_postgres_source_schema_readiness(instance_id: str, region: str) -> str:
+    """
+    Attempts a direct, read-only SQL pre-flight check on the source PostgreSQL RDS instance
+    if credentials exist in Secret Manager and the endpoint is reachable.
+    Checks pglogical installation across databases and tables missing Primary Keys.
+    """
+    try:
+        metadata = get_rds_metadata(instance_id, region)
+        endpoint = metadata.get("Endpoint", {}) if metadata else {}
+        host = endpoint.get("Address")
+        port = int(endpoint.get("Port", 5432))
+        if not host:
+            return "INFO: Source endpoint not available for live SQL schema audit."
+
+        from ..dbmigration.dbmigration_agent import get_secret
+        try:
+            user = get_secret(f"{instance_id}_user")
+            password = get_secret(f"{instance_id}_password")
+        except Exception:
+            return "INFO: Secret Manager credentials not yet configured for live SQL schema audit (pglogical & Primary Key check)."
+
+        import pg8000
+        conn = pg8000.connect(host=host, port=port, user=user, password=password, database="postgres", timeout=4)
+        cursor = conn.cursor()
+        cursor.execute("SELECT datname FROM pg_database WHERE datistemplate = false AND datname NOT IN ('rdsadmin');")
+        db_names = [r[0] for r in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+
+        missing_pglogical_dbs = []
+        missing_pk_tables = []
+
+        for db_name in db_names:
+            try:
+                db_conn = pg8000.connect(host=host, port=port, user=user, password=password, database=db_name, timeout=4)
+                db_cur = db_conn.cursor()
+                db_cur.execute("SELECT 1 FROM pg_extension WHERE extname = 'pglogical';")
+                if not db_cur.fetchone():
+                    missing_pglogical_dbs.append(db_name)
+
+                db_cur.execute("""
+                    SELECT t.table_schema, t.table_name
+                    FROM information_schema.tables t
+                    LEFT JOIN information_schema.table_constraints tc
+                      ON t.table_schema = tc.table_schema
+                     AND t.table_name = tc.table_name
+                     AND tc.constraint_type = 'PRIMARY KEY'
+                    WHERE t.table_type = 'BASE TABLE'
+                      AND t.table_schema NOT IN ('pg_catalog', 'information_schema', 'pglogical')
+                      AND tc.constraint_name IS NULL;
+                """)
+                for row in db_cur.fetchall():
+                    missing_pk_tables.append(f"{db_name}.{row[0]}.{row[1]}")
+                db_cur.close()
+                db_conn.close()
+            except Exception:
+                pass
+
+        findings = []
+        if missing_pglogical_dbs:
+            findings.append(f"FAIL: Extension 'pglogical' is not installed in database(s): {', '.join(missing_pglogical_dbs)}. Run CREATE EXTENSION IF NOT EXISTS pglogical; in each database.")
+        else:
+            findings.append("PASS: Extension 'pglogical' is installed in all discovered databases.")
+
+        if missing_pk_tables:
+            sample = ", ".join(missing_pk_tables[:5])
+            findings.append(f"WARNING: Found {len(missing_pk_tables)} table(s) without a Primary Key ({sample}). In PostgreSQL DMS, tables without Primary Keys only replicate INSERTs (UPDATE/DELETE will fail or be skipped during CDC).")
+        else:
+            findings.append("PASS: All user tables have Primary Keys for full CDC (INSERT/UPDATE/DELETE) replication.")
+
+        return "\n".join(findings)
+    except Exception:
+        return "INFO: Live SQL schema check skipped (source RDS in private VPC or unreachable from discovery host). Ensure 'CREATE EXTENSION pglogical;' is executed in every database and all tables have Primary Keys."
+
+def build_postgres_remediation_suggestions(instance_id: str, region: str, metadata: dict, validation_results: dict) -> str:
+    """Builds actionable AWS CLI and SQL remediation commands when PostgreSQL checks fail or warn."""
+    group_name = "your-parameter-group"
+    if metadata and metadata.get("DBParameterGroups"):
+        group_name = metadata["DBParameterGroups"][0].get("DBParameterGroupName", group_name)
+
+    cmds = []
+    logical_status = validation_results.get("Logical Replication", "")
+    worker_status = validation_results.get("Worker Processes & Locks", "")
+
+    if "FAIL:" in logical_status or "FAIL:" in worker_status:
+        cmds.append(
+            f"# 1. Update RDS Parameter Group ({group_name}) for PostgreSQL DMS Logical Replication:\n"
+            f"aws rds modify-db-parameter-group \\\n"
+            f"  --db-parameter-group-name {group_name} \\\n"
+            f"  --region {region} \\\n"
+            f"  --parameters \\\n"
+            f"    \"ParameterName=rds.logical_replication,ParameterValue=1,ApplyMethod=pending-reboot\" \\\n"
+            f"    \"ParameterName=shared_preload_libraries,ParameterValue=pglogical,ApplyMethod=pending-reboot\" \\\n"
+            f"    \"ParameterName=max_replication_slots,ParameterValue=10,ApplyMethod=pending-reboot\" \\\n"
+            f"    \"ParameterName=max_wal_senders,ParameterValue=10,ApplyMethod=pending-reboot\" \\\n"
+            f"    \"ParameterName=max_worker_processes,ParameterValue=8,ApplyMethod=pending-reboot\"\n\n"
+            f"# 2. Reboot RDS instance to apply static parameter changes:\n"
+            f"aws rds reboot-db-instance --db-instance-identifier {instance_id} --region {region}"
+        )
+
+    cmds.append(
+        f"-- 3. Run inside EVERY PostgreSQL database to be migrated:\n"
+        f"CREATE EXTENSION IF NOT EXISTS pglogical;\n"
+        f"GRANT rds_replication TO <migration_user>;\n"
+        f"GRANT USAGE ON SCHEMA pglogical TO <migration_user>;\n"
+        f"GRANT SELECT ON ALL TABLES IN SCHEMA pglogical TO <migration_user>;\n"
+        f"GRANT USAGE ON SCHEMA public TO <migration_user>;\n"
+        f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO <migration_user>;\n"
+        f"GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO <migration_user>;"
+    )
+    return "\n\n".join(cmds)
+
 def generate_single_postgres_report(instance_id: str, region: str) -> str:
     """Generates a pre-migration report for a single PostgreSQL RDS instance."""
     rds_metadata = get_rds_metadata(instance_id, region)
@@ -117,8 +263,11 @@ def generate_single_postgres_report(instance_id: str, region: str) -> str:
         "Version Check": check_postgres_version(instance_id, region),
         "Logical Replication": check_postgres_logical_params(instance_id, region),
         "Worker Processes & Locks": check_postgres_worker_params(instance_id, region),
+        "Schema & pglogical Readiness": check_postgres_source_schema_readiness(instance_id, region),
+        "CloudWatch Sizing & Telemetry": check_postgres_cloudwatch_sizing(instance_id, region),
     }
-    return generate_report("PostgreSQL", rds_metadata, validation_results, "")
+    suggestions = build_postgres_remediation_suggestions(instance_id, region, rds_metadata, validation_results)
+    return generate_report("PostgreSQL", rds_metadata, validation_results, suggestions)
 
 # --- Multi-Instance Orchestration ---
 async def discover_and_generate_postgres_reports(user_prompt: str, region_name: Optional[str] = None) -> str:
