@@ -3,7 +3,7 @@ import os
 import json
 import logging
 import socket
-from typing import Optional
+from typing import Dict, Optional
 from google.adk.agents import LlmAgent
 from dotenv import load_dotenv
 
@@ -734,7 +734,7 @@ def analyze_dms_error_and_suggest_resolution(
             "resolution_steps": [
                 "Verify the AWS RDS Security Group allows inbound TCP traffic on port 3306 (MySQL) or 5432 (PostgreSQL) from your GCP VPC subnet CIDR and DMS peering range.",
                 "Verify AWS VPC Route Tables and Network ACLs allow return traffic over the VPN/Interconnect.",
-                "Click 'Verify DMS Job' to test end-to-end network reachability, then click 'Resume DMS Job'."
+                "Click 'Check DMS Status' to test end-to-end network reachability, then click 'Resume Job'."
             ],
             "remediation_commands": (
                 "# Allow GCP VPC CIDR in AWS RDS Security Group:\n"
@@ -755,10 +755,10 @@ def analyze_dms_error_and_suggest_resolution(
             f"{error_message or 'Refer to GCP Cloud Logging for detailed engine error trace.'}"
         ),
         "resolution_steps": [
-            f"Run 'Verify DMS Job' to check source-to-target connectivity, credentials, and parameter prerequisites.",
+            f"Run 'Check DMS Status' to check source-to-target connectivity, credentials, and parameter prerequisites.",
             "If in FULL_DUMP phase: verify source database storage engine (InnoDB for MySQL), max_allowed_packet, and user SELECT/REPLICATION privileges.",
             "If in CDC phase: verify binary log retention (MySQL) or pglogical extension & Primary Keys on all updated tables (PostgreSQL).",
-            "Once resolved, use 'Resume DMS Job' (for transient/CDC errors) or 'Restart DMS Job' (for full dump re-initialization)."
+            "Once resolved, use 'Resume Job' (for transient/CDC errors) or 'Restart Job' (for full dump re-initialization)."
         ],
         "remediation_commands": (
             f"# Run pre-flight verification and resume job:\n"
@@ -769,10 +769,18 @@ def analyze_dms_error_and_suggest_resolution(
     }
 
 
-def get_dms_job_structured_status(migration_job_name: str, region: str = "us-central1") -> dict:
+_LAST_VERIFY_CACHE: Dict[str, dict] = {}
+
+
+def get_dms_job_structured_status(
+    migration_job_name: str,
+    region: str = "us-central1",
+    run_verify_if_not_started: bool = False,
+) -> dict:
     """
-    Returns a structured dictionary with DMS job state, phase, replication lag, error details,
-    and automatic AI error resolution advice if any errors exist during FULL_DUMP or CDC.
+    Returns a structured dictionary with DMS job state, phase, replication lag, pre-flight
+    verification status (when NOT_STARTED), Cloud Logging error details, and automatic AI error
+    resolution advice if any errors exist during PRE_FLIGHT_VERIFY, FULL_DUMP, or CDC.
     """
     cmd = [
         "gcloud", "database-migration", "migration-jobs", "describe",
@@ -806,13 +814,63 @@ def get_dms_job_structured_status(migration_job_name: str, region: str = "us-cen
         error_message = err_obj.get("message", "")
         error_details = err_obj.get("details", [])
 
-        # Also check if state is FAILED or if error_message is populated
-        has_error = bool(error_message) or state in ["FAILED", "STOPPED"]
+        verification_passed = None
+        verification_details = None
+        cache_key = f"{region}:{migration_job_name}"
+
+        # If the job has not started yet and pre-flight verification was requested, run verify
+        if run_verify_if_not_started and state == "NOT_STARTED":
+            verify_cmd = [
+                "gcloud", "database-migration", "migration-jobs", "verify",
+                migration_job_name, f"--region={region}"
+            ]
+            v_ret, v_out, v_err = run_cmd(verify_cmd)
+            if v_ret == 0:
+                verification_passed = True
+                verification_details = (
+                    v_out.strip()
+                    or "Source and destination connection profiles, network routing, and replication prerequisites verified successfully."
+                )
+                _LAST_VERIFY_CACHE[cache_key] = {
+                    "verification_passed": True,
+                    "verification_details": verification_details,
+                }
+            else:
+                verification_passed = False
+                error_code = error_code or "VERIFY_FAILED"
+                error_message = (v_err.strip() or v_out.strip() or error_message)
+                phase = "PRE_FLIGHT_VERIFY"
+                _LAST_VERIFY_CACHE[cache_key] = {
+                    "verification_passed": False,
+                    "error_code": error_code,
+                    "error_message": error_message,
+                    "phase": phase,
+                }
+        elif state == "NOT_STARTED" and cache_key in _LAST_VERIFY_CACHE:
+            cached = _LAST_VERIFY_CACHE[cache_key]
+            verification_passed = cached.get("verification_passed")
+            verification_details = cached.get("verification_details")
+            if verification_passed is False and not error_message:
+                error_code = cached.get("error_code", "VERIFY_FAILED")
+                error_message = cached.get("error_message", "")
+                phase = cached.get("phase", "PRE_FLIGHT_VERIFY")
+        elif state != "NOT_STARTED":
+            _LAST_VERIFY_CACHE.pop(cache_key, None)
+
+        # Also check if state is FAILED/STOPPED, verification failed, or if error_message is populated
+        has_error = bool(error_message) or state in ["FAILED", "STOPPED"] or (verification_passed is False)
         resolution = None
         recent_logs = []
 
-        if has_error:
+        if has_error or run_verify_if_not_started:
             recent_logs = fetch_dms_job_logs(migration_job_name, region=region, limit=8)
+            if not has_error and recent_logs:
+                # Surface Cloud Logging errors even if job describe has not transitioned state yet
+                has_error = True
+                error_code = error_code or "CLOUD_LOGGING_ERROR"
+                error_message = recent_logs[0]
+
+        if has_error:
             details_str = json.dumps(error_details) if error_details else ""
             full_err_msg = f"{error_message} {details_str}".strip()
             resolution = analyze_dms_error_and_suggest_resolution(
@@ -832,6 +890,8 @@ def get_dms_job_structured_status(migration_job_name: str, region: str = "us-cen
             "promoted": state in ["COMPLETED", "PROMOTED"],
             "job_name": migration_job_name,
             "region": region,
+            "verification_passed": verification_passed,
+            "verification_details": verification_details,
             "has_error": has_error,
             "error_code": error_code or None,
             "error_message": error_message or (recent_logs[0] if recent_logs else None),
@@ -874,39 +934,6 @@ def start_dms_job(migration_job_name: str, region: str = "us-central1") -> str:
         )
 
 
-def verify_dms_job(migration_job_name: str, region: str = "us-central1") -> str:
-    """
-    Runs GCP DMS pre-flight verification ('gcloud database-migration migration-jobs verify')
-    to validate network connectivity, source parameters, and target readiness, and automatically
-    suggests resolutions if verification fails.
-    """
-    cmd = [
-        "gcloud", "database-migration", "migration-jobs", "verify",
-        migration_job_name, f"--region={region}"
-    ]
-    ret, out, err = run_cmd(cmd)
-    if ret == 0:
-        return (
-            f"### DMS Pre-Flight Verification Passed\n"
-            f"- **Job Name**: {migration_job_name}\n"
-            f"- **Region**: {region}\n"
-            f"- **Result**: Source and destination connection profiles, network routing, and replication prerequisites verified successfully.\n"
-            f"- **Details**: {out.strip() or 'Verification operation succeeded.'}"
-        )
-    else:
-        advice = analyze_dms_error_and_suggest_resolution("VERIFY_FAILED", f"{out} {err}", phase="PRE_FLIGHT_VERIFY")
-        steps_md = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(advice["resolution_steps"]))
-        return (
-            f"### DMS Pre-Flight Verification Failed\n"
-            f"- **Job Name**: {migration_job_name}\n"
-            f"- **Error Output**: {err.strip() or out.strip()}\n\n"
-            f"#### Automated Diagnosis & Suggested Resolution ({advice['category']})\n"
-            f"- **Root Cause**: {advice['root_cause']}\n"
-            f"- **Resolution Steps**:\n{steps_md}\n\n"
-            f"```bash\n{advice['remediation_commands']}\n```"
-        )
-
-
 def resume_dms_job(migration_job_name: str, region: str = "us-central1") -> str:
     """Resumes a paused or failed DMS migration job from where it left off (ideal after fixing CDC or transient Full Dump errors)."""
     cmd = [
@@ -938,63 +965,20 @@ def restart_dms_job(migration_job_name: str, region: str = "us-central1") -> str
         return f"Failed to restart migration job '{migration_job_name}':\nStdout: {out}\nStderr: {err}"
 
 
-def diagnose_dms_job_errors(migration_job_name: str, region: str = "us-central1") -> str:
-    """
-    Inspects a DMS migration job and its Cloud Logging error stream to diagnose errors
-    during FULL_DUMP or CDC replication and recommends exact SQL/CLI resolutions.
-    """
-    status = get_dms_job_structured_status(migration_job_name, region)
-    if not status.get("configured"):
-        return f"Could not find configured DMS job '{migration_job_name}' in region '{region}'."
-
-    state = status.get("state", "UNKNOWN")
-    phase = status.get("phase", "UNKNOWN")
-    error_code = status.get("error_code") or "None"
-    error_message = status.get("error_message") or ""
-    recent_logs = status.get("recent_logs") or fetch_dms_job_logs(migration_job_name, region=region, limit=8)
-
-    if not status.get("has_error") and not recent_logs:
-        return (
-            f"### DMS Diagnostic Check: Healthy\n"
-            f"- **Job Name**: {migration_job_name}\n"
-            f"- **State**: {state}\n"
-            f"- **Phase**: {phase}\n"
-            f"- **Diagnosis**: No replication errors detected in job metadata or Cloud Logging. "
-            f"You can run **Verify DMS Job** at any time to re-validate source/target replication health."
-        )
-
-    resolution = status.get("resolution") or analyze_dms_error_and_suggest_resolution(
-        error_code=error_code,
-        error_message=error_message,
-        phase=phase,
-        log_entries=recent_logs,
-    )
-    steps_md = "\n".join(f"1. {s}" for s in resolution["resolution_steps"])
-    logs_md = "\n".join(f"- `{log}`" for log in recent_logs[:3]) if recent_logs else "- No additional Cloud Logging entries found."
-
-    return (
-        f"### AI Error Diagnosis & Resolution Report\n"
-        f"- **Job Name**: {migration_job_name}\n"
-        f"- **Current State**: {state}\n"
-        f"- **Replication Phase**: {phase}\n"
-        f"- **Error Code**: {error_code}\n"
-        f"- **Error Message**: {error_message or 'Detected in Cloud Logging'}\n\n"
-        f"#### Identified Issue: {resolution['category']}\n"
-        f"- **Root Cause**: {resolution['root_cause']}\n"
-        f"- **Recommended Action**: `{resolution['recommended_action'].upper()}`\n\n"
-        f"#### Step-by-Step Resolution\n{steps_md}\n\n"
-        f"#### Remediation Commands\n```sql\n{resolution['remediation_commands']}\n```\n\n"
-        f"#### Recent Cloud Logging Snippets\n{logs_md}"
-    )
-
-
 def check_dms_status(migration_job_name: str, region: str = "us-central1") -> str:
     """
-    Checks the status of a DMS migration job using gcloud CLI.
-    If the job has any errors during FULL_DUMP or CDC, automatically appends AI-driven
-    root cause analysis and resolution steps based on the error code.
+    Unified DMS status, pre-flight verification, and error diagnostic tool:
+    - Checks the live status and phase of the DMS migration job (`describe`).
+    - If the job is `NOT_STARTED`, automatically runs pre-flight verification (`verify`) to validate
+      network connectivity, SSL, and source/target replication parameters.
+    - Inspects Cloud Logging and job error metadata during `FULL_DUMP` or `CDC` and automatically
+      provides AI-driven root cause analysis and SQL/CLI resolution steps if any errors are found.
     """
-    status = get_dms_job_structured_status(migration_job_name, region)
+    status = get_dms_job_structured_status(
+        migration_job_name,
+        region,
+        run_verify_if_not_started=True,
+    )
     if not status.get("configured"):
         return f"Failed to check migration job status for '{migration_job_name}' in region '{region}': {status.get('error_message', 'Job not found')}"
 
@@ -1006,17 +990,33 @@ def check_dms_status(migration_job_name: str, region: str = "us-central1") -> st
         f"- **Created At**: {status.get('create_time', '')}\n"
     )
 
+    if status.get("verification_passed") is True:
+        status_report += (
+            f"- **Pre-Flight Verification**: PASSED ({status.get('verification_details')})\n"
+        )
+
     if status.get("has_error") and status.get("resolution"):
         res = status["resolution"]
-        steps_md = "\n".join(f"  - {s}" for s in res.get("resolution_steps", []))
+        recent_logs = status.get("recent_logs") or []
+        steps_md = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(res.get("resolution_steps", [])))
+        logs_md = (
+            "\n".join(f"  - `{log}`" for log in recent_logs[:3])
+            if recent_logs
+            else "  - No additional Cloud Logging entries found."
+        )
         status_report += (
             f"- **Error Code**: {status.get('error_code') or 'N/A'}\n"
             f"- **Error Details**: {status.get('error_message') or 'See resolution below'}\n\n"
             f"#### Automatic Error Resolution Advisor ({res.get('category')})\n"
             f"- **Root Cause**: {res.get('root_cause')}\n"
+            f"- **Recommended Action**: `{res.get('recommended_action', 'resume').upper()}`\n"
             f"- **Suggested Fix Steps**:\n{steps_md}\n"
             f"- **Remediation Commands**:\n```sql\n{res.get('remediation_commands', '')}\n```\n"
-            f"- **Next Step**: Run `{res.get('recommended_action', 'resume')}` after applying the fix.\n"
+            f"- **Recent Cloud Logging Snippets**:\n{logs_md}\n"
+        )
+    elif not status.get("has_error"):
+        status_report += (
+            f"- **Health Diagnosis**: Healthy — no replication errors detected in DMS metadata or Cloud Logging.\n"
         )
 
     return status_report
@@ -1061,14 +1061,12 @@ dbmigration_dms_agent = LlmAgent(
     name="DBMigrationDMSAgent",
     model=os.getenv("MODEL"),
     instruction="""You are an expert on Google Cloud Database Migration Service (DMS).
-Your task is to help the user configure, verify, start, check status of, diagnose errors for, resume/restart, and promote database migration jobs.
+Your task is to help the user configure, start, check status/verify/diagnose errors for, resume/restart, and promote database migration jobs.
 
 You have tools to:
 - Configure DMS resources (`configure_dms_resources`: creates source connection profile, target connection profile, and migration job).
-- Verify a DMS migration job (`verify_dms_job`: runs pre-flight verification checks on connectivity, binlog/pglogical settings, and permissions).
 - Start a DMS migration job (`start_dms_job`).
-- Check the status of a DMS migration job (`check_dms_status`: automatically includes error resolution suggestions if the job encountered errors during Full Dump or CDC).
-- Diagnose DMS replication errors (`diagnose_dms_job_errors`: deep-dives into error codes and Cloud Logging during Full Dump or CDC and provides actionable SQL/CLI fixes).
+- Check the status of a DMS migration job (`check_dms_status`: automatically runs pre-flight verification if `NOT_STARTED`, checks live replication status and Cloud Logging, and provides AI error resolution suggestions if the job encountered errors during Full Dump or CDC).
 - Resume a paused or failed DMS migration job (`resume_dms_job`).
 - Restart a DMS migration job from Full Dump (`restart_dms_job`).
 - Promote the target database (`promote_target_database`: completes the migration job with pre-promotion safety checks).
@@ -1084,24 +1082,20 @@ Choose the appropriate tool based on the user's intent:
   - secondary_zone (e.g. secondary zone for HA)
   - vpc_network (e.g. custom VPC network selected by user)
   And call `configure_dms_resources`.
-- If the user wants to verify or pre-check the migration job, call `verify_dms_job`.
 - If the user wants to start the migration job, call `start_dms_job`.
-- If the user wants to check the status or get info of the migration job, call `check_dms_status`.
-- If the user asks to diagnose, troubleshoot, or resolve errors during Full Dump or CDC, call `diagnose_dms_job_errors`.
+- If the user wants to check the status, verify pre-flight readiness, or diagnose/troubleshoot errors of the migration job, call `check_dms_status`.
 - If the user wants to resume a paused or fixed migration job, call `resume_dms_job`.
 - If the user wants to restart a migration job from scratch / Full Dump, call `restart_dms_job`.
 - If the user wants to promote the database or complete migration, call `promote_target_database`.
 
-Whenever an error is detected during Full Dump or CDC, always highlight the error code, root cause, exact remediation commands (SQL / AWS CLI / gcloud), and whether the user should resume or restart the job.
+Whenever an error is detected during Pre-Flight Verification, Full Dump, or CDC, always highlight the error code, root cause, exact remediation commands (SQL / AWS CLI / gcloud), and whether the user should resume or restart the job.
 Provide a clear, human-readable summary of the tool output as your final response.
 """,
-    description="Handles all requests for configuring DMS connection profiles, verifying/starting/resuming/restarting migration jobs, checking status, diagnosing Full Dump/CDC replication errors, and promoting target databases.",
+    description="Handles all requests for configuring DMS connection profiles, starting/resuming/restarting migration jobs, checking status (including pre-flight verification and Full Dump/CDC error diagnosis), and promoting target databases.",
     tools=[
         configure_dms_resources,
-        verify_dms_job,
         start_dms_job,
         check_dms_status,
-        diagnose_dms_job_errors,
         resume_dms_job,
         restart_dms_job,
         promote_target_database,

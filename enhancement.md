@@ -9,12 +9,13 @@ This document tracks all architectural, agentic, API, and UI enhancements implem
 | # | Enhancement Area | Status | Key Files Modified |
 |---|---|---|---|
 | 1 | **Automated DMS Error Diagnosis & Resolution (`FULL_DUMP` & `CDC`)** | Completed | `backend/root_agent/dbmigration/dbmigration_agent.py`, `backend/main.py`, `frontend/templates/index.html` |
-| 2 | **Self-Healing DMS Lifecycle Controls (`Verify`, `Diagnose`, `Resume`, `Restart`)** | Completed | `backend/root_agent/dbmigration/dbmigration_agent.py`, `backend/main.py`, `frontend/templates/index.html` |
+| 2 | **Unified Smart `Check DMS Status` & Self-Healing Controls (`Resume`, `Restart`)** | Completed | `backend/root_agent/dbmigration/dbmigration_agent.py`, `backend/main.py`, `frontend/main.py`, `frontend/templates/index.html` |
 | 3 | **Pre-Promotion Safety Gate (Cutover Guardrails)** | Completed | `backend/root_agent/dbmigration/dbmigration_agent.py` |
 | 4 | **Deep Pre-Migration Readiness & Schema-Level Checks (MySQL & PostgreSQL)** | Completed | `backend/root_agent/mysql/mysql_agent.py`, `backend/root_agent/postgres/postgres_agent.py` |
 | 5 | **AWS Aurora Cluster Parameter Support & CloudWatch Right-Sizing Telemetry** | Completed | `backend/root_agent/aws_utils.py`, `backend/root_agent/mysql/mysql_agent.py`, `backend/root_agent/postgres/postgres_agent.py` |
 | 6 | **Interactive Remediation Commands in HTML Pre-Migration Reports** | Completed | `backend/root_agent/report_generator.py` |
 | 7 | **Source-vs-Target Data Parity Validation (Row Counts, Deltas, Sequences)** | Completed | `backend/database_validator.py`, `frontend/templates/index.html` |
+| 8 | **Cloud Run Deployment, Frontend Reverse Proxy & Terraform IAM** | Completed | `frontend/main.py`, `backend/Dockerfile`, `frontend/Dockerfile`, `terraform/main.tf` |
 
 ---
 
@@ -41,18 +42,20 @@ This document tracks all architectural, agentic, API, and UI enhancements implem
 
 ---
 
-### 2. Self-Healing DMS Lifecycle Controls (`Verify`, `Diagnose`, `Resume`, `Restart`)
+### 2. Unified Smart `Check DMS Status` & Self-Healing Controls (`Resume`, `Restart`)
 * **Files**:
-  * `backend/root_agent/dbmigration/dbmigration_agent.py` (`verify_dms_job`, `diagnose_dms_job_errors`, `resume_dms_job`, `restart_dms_job`)
-  * `backend/main.py` (`/dms/verify`, `/dms/diagnose`, `/dms/resume`, `/dms/restart`, `/dms/status`)
+  * `backend/root_agent/dbmigration/dbmigration_agent.py` (`get_dms_job_structured_status`, `check_dms_status`, `resume_dms_job`, `restart_dms_job`)
+  * `backend/main.py` (`/dms/status`)
+  * `frontend/main.py` (`/dms/status`, `/dms/resume`, `/dms/restart`)
   * `frontend/templates/index.html`
 * **What Changed**:
-  * Registered four new ADK tools on `dbmigration_dms_agent` and exposed matching FastAPI endpoints:
-    * `POST /dms/verify`: Runs `gcloud database-migration migration-jobs verify` to validate network routing, SSL, source parameters, and `pglogical`/binlog readiness before starting the job.
-    * `POST /dms/diagnose`: Fetches the live DMS job status and Cloud Logging errors and returns the structured remediation plan.
-    * `POST /dms/resume`: Runs `gcloud database-migration migration-jobs resume` to continue a paused/failed job from its last CDC checkpoint after source fixes are applied.
-    * `POST /dms/restart`: Runs `gcloud database-migration migration-jobs restart` when unrecoverable CDC state (such as purged binlogs) requires a fresh `FULL_DUMP`.
-  * Updated Step 4 of the UI wizard (`frontend/templates/index.html`) to include **Verify DMS Job**, **Diagnose Errors**, **Resume Job**, and **Restart Job** buttons and an interactive **AI Error Resolution Advisor** panel with one-click recovery actions.
+  * **Unified `Check DMS Status` (`check_dms_status`)**: Consolidated pre-flight verification (`verify`) and Cloud Logging error diagnosis into `check_dms_status` and `get_dms_job_structured_status()` so only a single **Check DMS Status** button is needed in the UI:
+    * When the DMS job is `NOT_STARTED`, `check_dms_status` automatically runs `gcloud database-migration migration-jobs verify` to validate network routing, SSL, source parameters, and `pglogical`/binlog readiness before starting the job.
+    * When the DMS job is `RUNNING`, `FAILED`, or `STOPPED` (during `FULL_DUMP` or `CDC`), it inspects job metadata and Cloud Logging and automatically returns the structured **AI Error Resolution Advisor** report if any errors exist.
+  * **Self-Healing Recovery Actions**:
+    * `resume_dms_job`: Runs `gcloud database-migration migration-jobs resume` to continue a paused/failed job from its last CDC checkpoint after source fixes are applied.
+    * `restart_dms_job`: Runs `gcloud database-migration migration-jobs restart` when unrecoverable CDC state (such as purged binlogs) requires a fresh `FULL_DUMP`.
+  * Updated Step 4 of the UI wizard (`frontend/templates/index.html`) to remove the redundant **Verify DMS Job** and **Diagnose Errors** buttons while keeping **Check DMS Status**, **Resume Job**, **Restart Job**, and the automatic **AI Replication Error Advisor** panel.
 
 ---
 
@@ -113,7 +116,35 @@ This document tracks all architectural, agentic, API, and UI enhancements implem
 
 ---
 
+### 8. Cloud Run Deployment, Frontend Reverse Proxy & Terraform IAM
+* **Files**:
+  * `frontend/main.py` (`dms_status_proxy`, `dms_resume_proxy`, `dms_restart_proxy`)
+  * `backend/Dockerfile`, `frontend/Dockerfile`
+  * `terraform/main.tf` (`google_project_iam_member.backend_logging_viewer`)
+* **What Changed**:
+  * Added reverse proxy routes in `frontend/main.py` for `/dms/status`, `/dms/resume`, and `/dms/restart` to forward browser requests to `BACKEND_URL`.
+  * Updated `backend/Dockerfile` and `frontend/Dockerfile` to install `google-cloud-cli` (replacing deprecated `google-cloud-sdk` Debian apt package).
+  * Granted `roles/logging.viewer` to `dms-backend-sa` in `terraform/main.tf` so `fetch_dms_job_logs()` can query Cloud Logging from Cloud Run.
+  * Built container images via Google Cloud Build and deployed both services to Cloud Run (`asia-south1` in project `migration-demo-429608`):
+    * **Frontend URL**: `https://dms-frontend-214722091571.asia-south1.run.app`
+    * **Backend URL**: `https://dms-backend-214722091571.asia-south1.run.app`
+
+---
+
 ## Change Log
+
+### 2026-10-01 — Consolidated `Verify DMS Job` & `Diagnose Errors` into `Check DMS Status` (Re-deployed to Cloud Run)
+- Merged `verify_dms_job` and `diagnose_dms_job_errors` into `check_dms_status` and `get_dms_job_structured_status(run_verify_if_not_started=True)` in `backend/root_agent/dbmigration/dbmigration_agent.py`, caching `NOT_STARTED` pre-flight verification results in `_LAST_VERIFY_CACHE`.
+- Removed redundant **Verify DMS Job** and **Diagnose Errors** buttons from Step 4 in `frontend/templates/index.html`, keeping a single smart **Check DMS Status** button.
+- Cleaned up redundant `/dms/verify`, `/dms/diagnose`, `/dms/resume`, and `/dms/restart` proxy routes in `frontend/main.py`.
+- Re-built and pushed `gcr.io/migration-demo-429608/dms-backend:latest` (`sha256:69f762d9...`) and `gcr.io/migration-demo-429608/dms-frontend:latest` (`sha256:98292018...`) and rolled out both revisions to Cloud Run via `terraform apply`.
+
+### 2026-10-01 — Cloud Run Deployment (`dms-backend` & `dms-frontend`)
+- Added `/dms/verify`, `/dms/diagnose`, `/dms/resume`, and `/dms/restart` proxy routes to `frontend/main.py`.
+- Updated `backend/Dockerfile` and `frontend/Dockerfile` to install `google-cloud-cli` instead of `google-cloud-sdk`.
+- Added `roles/logging.viewer` IAM binding (`google_project_iam_member.backend_logging_viewer`) for `dms-backend-sa` in `terraform/main.tf`.
+- Built and pushed `gcr.io/migration-demo-429608/dms-backend:latest` and `gcr.io/migration-demo-429608/dms-frontend:latest` via Cloud Build.
+- Deployed updated `dms-backend` and `dms-frontend` revisions to Cloud Run (`asia-south1`) via `terraform apply`.
 
 ### 2026-10-01 — Initial `dms-enhance` Implementation
 - Created `dms-enhance` branch from `origin/dms-adk2`.

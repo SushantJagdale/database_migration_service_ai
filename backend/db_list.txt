@@ -1,11 +1,23 @@
 [
     {
+        "DBInstanceIdentifier": "aurora-mysql-database-1-instance-1",
+        "Engine": "aurora-mysql",
+        "Region": "ap-south-1",
+        "DBParameterGroups": [
+            "default.aurora-mysql8.0"
+        ],
+        "DBClusterIdentifier": "aurora-mysql-database-1",
+        "EngineMode": "provisioned"
+    },
+    {
         "DBInstanceIdentifier": "gemini-mysql-instance-1",
         "Engine": "mysql",
         "Region": "ap-south-1",
         "DBParameterGroups": [
             "mysql"
-        ]
+        ],
+        "DBClusterIdentifier": null,
+        "EngineMode": "provisioned"
     },
     {
         "DBInstanceIdentifier": "gemini-mysql-instance-2",
@@ -13,7 +25,9 @@
         "Region": "ap-south-1",
         "DBParameterGroups": [
             "mysql"
-        ]
+        ],
+        "DBClusterIdentifier": null,
+        "EngineMode": "provisioned"
     },
     {
         "DBInstanceIdentifier": "gemini-postgres-instance-1",
@@ -21,7 +35,9 @@
         "Region": "ap-south-1",
         "DBParameterGroups": [
             "postgres"
-        ]
+        ],
+        "DBClusterIdentifier": null,
+        "EngineMode": "provisioned"
     },
     {
         "DBInstanceIdentifier": "gemini-postgres-instance-2",
@@ -29,6 +45,18 @@
         "Region": "ap-south-1",
         "DBParameterGroups": [
             "postgres"
-        ]
+        ],
+        "DBClusterIdentifier": null,
+        "EngineMode": "provisioned"
+    },
+    {
+        "DBInstanceIdentifier": "aurora-mysql-database-1",
+        "Engine": "aurora-mysql",
+        "Region": "ap-south-1",
+        "DBParameterGroups": [
+            "default.aurora-mysql8.0"
+        ],
+        "EngineMode": "provisioned",
+        "IsCluster": true
     }
 ]

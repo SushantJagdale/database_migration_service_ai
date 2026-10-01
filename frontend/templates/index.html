@@ -579,10 +579,6 @@
                                             <span class="spinner" id="configure-dms-spinner"></span>
                                             <span>Configure DMS Job</span>
                                         </button>
-                                        <button type="button" class="btn btn-outline-primary btn-sm-custom mr-2 mb-2" id="verify-dms-btn" style="border: 1px solid #4f46e5;" disabled>
-                                            <span class="spinner" id="verify-dms-spinner"></span>
-                                            <span>Verify DMS Job</span>
-                                        </button>
                                         <button type="button" class="btn btn-info btn-sm-custom mr-2 mb-2" id="start-dms-btn" disabled>
                                             <span class="spinner" id="start-dms-spinner"></span>
                                             <span>Start DMS Job</span>
@@ -590,10 +586,6 @@
                                         <button type="button" class="btn btn-secondary btn-sm-custom mr-2 mb-2" id="status-dms-btn" disabled>
                                             <span class="spinner" id="status-dms-spinner"></span>
                                             <span>Check DMS Status</span>
-                                        </button>
-                                        <button type="button" class="btn btn-warning btn-sm-custom mr-2 mb-2 text-dark" id="diagnose-dms-btn" disabled>
-                                            <span class="spinner" id="diagnose-dms-spinner"></span>
-                                            <span>Diagnose Errors</span>
                                         </button>
                                         <button type="button" class="btn btn-dark btn-sm-custom mr-2 mb-2" id="resume-dms-btn" disabled>
                                             <span class="spinner" id="resume-dms-spinner"></span>
@@ -756,10 +748,8 @@
         // DMS management elements
         const dmsJobNameInput = document.getElementById('dms_job_name');
         const configureDmsBtn = document.getElementById('configure-dms-btn');
-        const verifyDmsBtn = document.getElementById('verify-dms-btn');
         const startDmsBtn = document.getElementById('start-dms-btn');
         const statusDmsBtn = document.getElementById('status-dms-btn');
-        const diagnoseDmsBtn = document.getElementById('diagnose-dms-btn');
         const resumeDmsBtn = document.getElementById('resume-dms-btn');
         const restartDmsBtn = document.getElementById('restart-dms-btn');
         const promoteDmsBtn = document.getElementById('promote-dms-btn');
@@ -987,10 +977,8 @@
             discoverBtn.disabled = true;
             document.getElementById('discover-prompt').disabled = true;
             configureDmsBtn.disabled = true;
-            verifyDmsBtn.disabled = true;
             startDmsBtn.disabled = true;
             statusDmsBtn.disabled = true;
-            diagnoseDmsBtn.disabled = true;
             resumeDmsBtn.disabled = true;
             restartDmsBtn.disabled = true;
             promoteDmsBtn.disabled = true;
@@ -1146,10 +1134,8 @@
                                     updateZonesForRegion(gcpRegion);
                                 }
                             } else {
-                                verifyDmsBtn.disabled = true;
                                 startDmsBtn.disabled = true;
                                 statusDmsBtn.disabled = true;
-                                diagnoseDmsBtn.disabled = true;
                                 resumeDmsBtn.disabled = true;
                                 restartDmsBtn.disabled = true;
                                 promoteDmsBtn.disabled = true;
@@ -1217,10 +1203,8 @@
             currentDmsStatus = status;
             if (!status.configured) {
                 updateConfigureDmsButtonState();
-                verifyDmsBtn.disabled = true;
                 startDmsBtn.disabled = true;
                 statusDmsBtn.disabled = true;
-                diagnoseDmsBtn.disabled = true;
                 resumeDmsBtn.disabled = true;
                 restartDmsBtn.disabled = true;
                 promoteDmsBtn.disabled = true;
@@ -1229,10 +1213,8 @@
             }
             
             updateConfigureDmsButtonState();
-            verifyDmsBtn.disabled = false;
             startDmsBtn.disabled = false;
             statusDmsBtn.disabled = false;
-            diagnoseDmsBtn.disabled = false;
             resumeDmsBtn.disabled = false;
             restartDmsBtn.disabled = false;
             validateDmsBtn.disabled = false;
@@ -1245,10 +1227,8 @@
             
             if (status.promoted || status.state === 'COMPLETED') {
                 configureDmsBtn.disabled = true;
-                verifyDmsBtn.disabled = true;
                 startDmsBtn.disabled = true;
                 statusDmsBtn.disabled = true;
-                diagnoseDmsBtn.disabled = true;
                 resumeDmsBtn.disabled = true;
                 restartDmsBtn.disabled = true;
                 promoteDmsBtn.disabled = true;
@@ -1294,7 +1274,7 @@
                     ${cmdText ? `<pre class="p-2 rounded mb-2" style="background: #0f172a; color: #f8fafc; font-size: 0.8rem; overflow-x: auto;"><code>${cmdText}</code></pre>` : ''}
                     <div class="small font-weight-bold">
                         Recommended Recovery Action: <span class="badge badge-dark">${recAction}</span>
-                        (Use the <em>Resume Job</em> or <em>Restart Job</em> button above after applying the fix)
+                        (Use <em>Check DMS Status</em>, <em>Resume Job</em>, or <em>Restart Job</em> above after applying the fix)
                     </div>
                 </div>
             `;
@@ -1338,7 +1318,7 @@
                     } else if (status.state === 'COMPLETED' || status.promoted) {
                         adviceHtml = '<div class="alert alert-success mt-2"><strong>Status Advice:</strong> The database has been promoted successfully. Migration complete!</div>';
                     } else if (status.state === 'NOT_STARTED') {
-                        adviceHtml = '<div class="alert alert-info mt-2"><strong>Status Advice:</strong> Job has been configured. Click "Verify DMS Job" or "Start DMS Job" to begin replication.</div>';
+                        adviceHtml = '<div class="alert alert-info mt-2"><strong>Status Advice:</strong> Job has been configured. Click "Check DMS Status" (for pre-flight verification) or "Start DMS Job" to begin replication.</div>';
                     } else {
                         adviceHtml = `<div class="alert alert-secondary mt-2"><strong>Status Advice:</strong> Migration job status is currently: ${escapeHtml(status.state)} (Phase: ${escapeHtml(status.phase)}).</div>`;
                     }
@@ -1453,18 +1433,6 @@
             }
         });
 
-        document.getElementById('verify-dms-btn').addEventListener('click', async () => {
-            const jobName = document.getElementById('dms_job_name').value;
-            const region = document.getElementById('dms_region').value;
-            if (!jobName) {
-                alert("Please specify the DMS Migration Job Name.");
-                return;
-            }
-            const prompt = `Verify database migration job ${jobName} in region ${region}.`;
-            await callDmsAgent(prompt, 'verify-dms-btn', 'verify-dms-spinner');
-            checkJobStatusAndUpdate(jobName, region);
-        });
-
         document.getElementById('start-dms-btn').addEventListener('click', async () => {
             const jobName = document.getElementById('dms_job_name').value;
             const region = document.getElementById('dms_region').value;
@@ -1488,18 +1456,6 @@
             }
             const prompt = `Check status of database migration job ${jobName} in region ${region}.`;
             await callDmsAgent(prompt, 'status-dms-btn', 'status-dms-spinner');
-            checkJobStatusAndUpdate(jobName, region);
-        });
-
-        document.getElementById('diagnose-dms-btn').addEventListener('click', async () => {
-            const jobName = document.getElementById('dms_job_name').value;
-            const region = document.getElementById('dms_region').value;
-            if (!jobName) {
-                alert("Please specify the DMS Migration Job Name.");
-                return;
-            }
-            const prompt = `Diagnose replication errors and suggest resolution for database migration job ${jobName} in region ${region}.`;
-            await callDmsAgent(prompt, 'diagnose-dms-btn', 'diagnose-dms-spinner');
             checkJobStatusAndUpdate(jobName, region);
         });
 
